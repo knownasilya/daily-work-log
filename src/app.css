@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply bg-white text-gray-900;
+  }
+  html.dark {
+    @apply bg-gray-900 text-gray-100;
+  }
+  /* Force visible text in dark mode - native form elements often ignore inherited color */
+  html.dark input,
+  html.dark textarea {
+    color: rgb(243 244 246); /* gray-100 */
+  }
+  html.dark input::placeholder,
+  html.dark textarea::placeholder {
+    color: rgb(107 114 128); /* gray-500 */
+  }
+  /* Dark mode scrollbar */
+  html.dark {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(75 85 99) rgb(31 41 55); /* gray-600 on gray-800 */
+  }
+  html.dark ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  html.dark ::-webkit-scrollbar-track {
+    background: rgb(31 41 55); /* gray-800 */
+  }
+  html.dark ::-webkit-scrollbar-thumb {
+    background: rgb(75 85 99); /* gray-600 */
+    border-radius: 4px;
+  }
+  html.dark ::-webkit-scrollbar-thumb:hover {
+    background: rgb(107 114 128); /* gray-500 */
+  }
+
+  /* WKWebView still drags <img> as a URL unless this is set (draggable="false" is not enough). */
+  .emoji-slot-img {
+    -webkit-user-drag: none;
+  }
+
+  /* Pointer row reorder: block text selection (including in textareas) while dragging. */
+  html.dwl-reorder-dragging,
+  html.dwl-reorder-dragging * {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+  }
+}
