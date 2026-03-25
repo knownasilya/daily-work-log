@@ -6,6 +6,7 @@
     upsertEmojiRule,
     deleteEmojiRule,
     getLastDay,
+    reorderEmojiRules,
     type EmojiRule,
   } from '$lib/api/db';
   import { parsePatterns, validatePattern as checkPatternSyntax } from '$lib/emoji';
@@ -20,6 +21,123 @@
   let editRule = $state<{ image: string; text: string; label: string; patterns: string[] } | null>(
     null
   );
+
+  /** Pointer-based reorder (same approach as day view; HTML5 DnD is unreliable in Tauri WKWebView). */
+  const REORDER_THRESHOLD_PX = 8;
+  type PendingPointer = { x: number; y: number; ruleId: string; pointerId: number };
+  let pendingPointer: PendingPointer | null = null;
+  let reorderActive = $state(false);
+  let reorderSourceId = $state<string | null>(null);
+  /** Insert before this index in `rules` (0..length); visual only until pointerup. */
+  let reorderInsertSlot = $state<number | null>(null);
+
+  $effect(() => {
+    if (reorderActive) {
+      document.documentElement.classList.add('dwl-reorder-dragging');
+      const preventSelect = (ev: Event) => ev.preventDefault();
+      document.addEventListener('selectstart', preventSelect, { capture: true });
+      return () => {
+        document.documentElement.classList.remove('dwl-reorder-dragging');
+        document.removeEventListener('selectstart', preventSelect, { capture: true });
+      };
+    }
+    document.documentElement.classList.remove('dwl-reorder-dragging');
+  });
+
+  function sameIdOrder(a: string[], b: string[]) {
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+
+  function orderIdsWithInsert(ids: string[], draggedId: string, insertSlot: number): string[] {
+    const from = ids.indexOf(draggedId);
+    if (from < 0) return ids;
+    const next = [...ids];
+    next.splice(from, 1);
+    let pos = insertSlot;
+    if (insertSlot > from) pos--;
+    pos = Math.max(0, Math.min(pos, next.length));
+    next.splice(pos, 0, draggedId);
+    return next;
+  }
+
+  function pointerEventToInsertSlot(e: PointerEvent): number | null {
+    const hit = document.elementFromPoint(e.clientX, e.clientY);
+    const row = hit?.closest('[data-emoji-rule-row]') as HTMLElement | null;
+    if (!row) return null;
+    const id = row.dataset.ruleId;
+    if (!id) return null;
+    const idx = rules.findIndex((r) => r.id === id);
+    if (idx < 0) return null;
+    const rect = row.getBoundingClientRect();
+    const before = e.clientY < rect.top + rect.height / 2;
+    return before ? idx : idx + 1;
+  }
+
+  function resetReorderState() {
+    pendingPointer = null;
+    reorderActive = false;
+    reorderSourceId = null;
+    reorderInsertSlot = null;
+  }
+
+  function handleReorderPointerDown(ruleId: string, e: PointerEvent) {
+    if (e.button !== 0) return;
+    pendingPointer = { x: e.clientX, y: e.clientY, ruleId, pointerId: e.pointerId };
+  }
+
+  function handleReorderPointerMove(el: HTMLElement, e: PointerEvent) {
+    if (pendingPointer && e.pointerId !== pendingPointer.pointerId) return;
+
+    if (pendingPointer && !reorderActive) {
+      const dx = e.clientX - pendingPointer.x;
+      const dy = e.clientY - pendingPointer.y;
+      if (Math.hypot(dx, dy) < REORDER_THRESHOLD_PX) return;
+      reorderActive = true;
+      reorderSourceId = pendingPointer.ruleId;
+      reorderInsertSlot = null;
+      el.setPointerCapture(e.pointerId);
+    }
+
+    if (!reorderActive) return;
+
+    e.preventDefault();
+    getSelection()?.removeAllRanges();
+    const src = reorderSourceId;
+    if (src == null) return;
+    const rawSlot = pointerEventToInsertSlot(e);
+    if (rawSlot == null) return;
+    const ids = rules.map((r) => r.id);
+    const next = orderIdsWithInsert(ids, src, rawSlot);
+    if (sameIdOrder(ids, next)) {
+      reorderInsertSlot = null;
+    } else {
+      reorderInsertSlot = rawSlot;
+    }
+  }
+
+  function handleReorderPointerUp(el: HTMLElement, e: PointerEvent) {
+    if (pendingPointer && e.pointerId !== pendingPointer.pointerId) return;
+
+    if (reorderActive) {
+      const src = reorderSourceId;
+      const slot = reorderInsertSlot;
+      if (src != null && slot != null) {
+        const ids = rules.map((r) => r.id);
+        const next = orderIdsWithInsert(ids, src, slot);
+        if (!sameIdOrder(ids, next)) {
+          reorderEmojiRules(next).then(() => {
+            getEmojiRules().then((r) => (rules = r));
+          });
+        }
+      }
+      try {
+        el.releasePointerCapture(e.pointerId);
+      } catch {
+        /* not capturing */
+      }
+    }
+    resetReorderState();
+  }
 
   function fileToDataUrl(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -331,10 +449,33 @@
       </section>
 
       <section class="space-y-3">
-        <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Emoji rules</h2>
+        <div>
+          <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Emoji rules</h2>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Order is used when auto-assigning an emoji for new tasks: the first rule wins.
+          </p>
+        </div>
         <ul class="space-y-3">
-        {#each rules as rule (rule.id)}
-          <li class="border border-gray-200 dark:border-gray-700 rounded p-3">
+        {#each rules as rule, ruleIndex (rule.id)}
+          <li
+            class="border border-gray-200 dark:border-gray-700 rounded p-3 relative overflow-visible {reorderSourceId === rule.id
+              ? 'opacity-50'
+              : ''}"
+            data-rule-id={rule.id}
+            data-emoji-rule-row={editingRuleId !== rule.id ? true : undefined}
+          >
+            {#if reorderActive && reorderInsertSlot === ruleIndex}
+              <div
+                class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-0.5 -translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
+                aria-hidden="true"
+              ></div>
+            {/if}
+            {#if reorderActive && reorderInsertSlot === rules.length && ruleIndex === rules.length - 1}
+              <div
+                class="pointer-events-none absolute left-0 right-0 bottom-0 z-10 h-0.5 translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
+                aria-hidden="true"
+              ></div>
+            {/if}
             {#if editingRuleId === rule.id && editRule}
               <div class="space-y-3">
                 <div
@@ -467,11 +608,23 @@
               </div>
             {:else}
               <div class="flex items-center gap-2">
-                <img
-                  src={rule.image}
-                  alt={rule.text}
-                  class="w-8 h-8 object-contain shrink-0"
-                />
+                <div
+                  role="button"
+                  tabindex="0"
+                  aria-label="Drag to reorder"
+                  class="emoji-drag-handle w-8 h-8 shrink-0 flex items-center justify-center border border-gray-200 dark:border-gray-600 rounded cursor-grab active:cursor-grabbing relative touch-none select-none"
+                  onpointerdown={(e) => handleReorderPointerDown(rule.id, e)}
+                  onpointermove={(e) => handleReorderPointerMove(e.currentTarget as HTMLElement, e)}
+                  onpointerup={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
+                  onpointercancel={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
+                >
+                  <img
+                    src={rule.image}
+                    alt={rule.text}
+                    class="emoji-slot-img w-5 h-5 object-contain pointer-events-none select-none"
+                    draggable="false"
+                  />
+                </div>
                 <div class="min-w-0 flex-1">
                   <div class="text-sm font-medium">:{rule.text}:</div>
                   <div class="text-xs text-gray-500 truncate">

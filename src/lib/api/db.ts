@@ -134,6 +134,14 @@ export async function getEmojiRules(): Promise<EmojiRule[]> {
   return Array.isArray(rows) ? rows : [];
 }
 
+/** Sets `sort_order` to 0..n-1 in list order (first id = highest auto-assign priority). */
+export async function reorderEmojiRules(orderedIds: string[]): Promise<void> {
+  const db = await getDb();
+  for (let i = 0; i < orderedIds.length; i++) {
+    await db.execute('UPDATE emoji_rules SET sort_order = $1 WHERE id = $2', [i, orderedIds[i]]);
+  }
+}
+
 export async function upsertEmojiRule(rule: EmojiRule): Promise<void> {
   const db = await getDb();
   await db.execute(
