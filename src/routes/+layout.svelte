@@ -7,8 +7,14 @@
 
   let { children } = $props();
 
-  onMount(async () => {
-    return listen('tray-open', () => goto('/'));
+  onMount(() => {
+    let unlisten: (() => void) | undefined;
+    void listen('tray-open', () => goto('/')).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
   });
 </script>
 

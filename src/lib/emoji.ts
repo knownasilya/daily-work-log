@@ -11,6 +11,25 @@ export function formatLineForSlack(
   return prefix + entry.content;
 }
 
+/** Plain text is always valid; `/.../` must compile as RegExp. */
+export function validatePattern(pattern: string): { ok: boolean; regexError: string | null } {
+  const trimmed = pattern.trim();
+  if (!trimmed) return { ok: true, regexError: null };
+  const regexMatch = /^\/(.*)\/$/.exec(trimmed);
+  if (regexMatch) {
+    try {
+      new RegExp(regexMatch[1]);
+      return { ok: true, regexError: null };
+    } catch (e) {
+      return {
+        ok: false,
+        regexError: e instanceof Error ? e.message : 'Invalid regex',
+      };
+    }
+  }
+  return { ok: true, regexError: null };
+}
+
 /** Parse pattern field: JSON array of strings, or legacy single pattern. */
 export function parsePatterns(pattern: string): string[] {
   const trimmed = pattern.trim();

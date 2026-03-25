@@ -314,7 +314,7 @@
                 {#if rule.id === task.emoji_id}
                   <img
                     src={rule.image}
-                    alt={rule.text}
+                    alt={rule.label?.trim() || rule.text}
                     class="emoji-slot-img w-5 h-5 pointer-events-none select-none"
                     draggable="false"
                   />
@@ -328,7 +328,7 @@
           </div>
           {#if emojiDropdownOpen === task.id}
             <div
-              class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[140px] max-h-40 overflow-y-auto"
+              class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[180px] max-w-[min(100vw-2rem,20rem)] max-h-40 overflow-y-auto"
               style="top: {emojiDropdownPos.top}px; left: {emojiDropdownPos.left}px;"
               onclick={(e) => e.stopPropagation()}
             >
@@ -336,10 +336,24 @@
                 <button
                   type="button"
                   onclick={() => selectEmoji(task.id, rule.id)}
-                  class="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                  class="w-full flex items-start gap-2 px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
-                  <img src={rule.image} alt={rule.text} class="w-5 h-5 shrink-0" draggable="false" />
-                  <span>:{rule.text}:</span>
+                  <img
+                    src={rule.image}
+                    alt={rule.label?.trim() || rule.text}
+                    class="w-5 h-5 shrink-0 mt-0.5"
+                    draggable="false"
+                  />
+                  <span class="min-w-0 flex-1 flex flex-col gap-0.5">
+                    {#if rule.label?.trim()}
+                      <span class="truncate">{rule.label.trim()}</span>
+                      <span class="text-xs text-gray-500 dark:text-gray-400 truncate"
+                        >:{rule.text}:</span
+                      >
+                    {:else}
+                      <span class="truncate">:{rule.text}:</span>
+                    {/if}
+                  </span>
                 </button>
               {/each}
               {#if task.emoji_id}

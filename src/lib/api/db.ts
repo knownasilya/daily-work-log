@@ -25,6 +25,7 @@ export interface EmojiRule {
   text: string;
   pattern: string;
   sort_order: number;
+  label: string | null;
 }
 
 export async function getTasksForDate(date: string): Promise<WorkLogEntry[]> {
@@ -136,8 +137,15 @@ export async function getEmojiRules(): Promise<EmojiRule[]> {
 export async function upsertEmojiRule(rule: EmojiRule): Promise<void> {
   const db = await getDb();
   await db.execute(
-    'INSERT OR REPLACE INTO emoji_rules (id, image, text, pattern, sort_order) VALUES ($1, $2, $3, $4, $5)',
-    [rule.id, rule.image, rule.text, rule.pattern, rule.sort_order]
+    'INSERT OR REPLACE INTO emoji_rules (id, image, text, pattern, sort_order, label) VALUES ($1, $2, $3, $4, $5, $6)',
+    [
+      rule.id,
+      rule.image,
+      rule.text,
+      rule.pattern,
+      rule.sort_order,
+      rule.label?.trim() ? rule.label.trim() : null,
+    ]
   );
 }
 
