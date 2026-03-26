@@ -8,6 +8,7 @@
     setEntryEmoji,
     getEmojiRules,
     reorderTasksForDate,
+    updateDayFocus,
   } from '$lib/api/db';
   import { formatDatePretty } from '$lib/utils';
   import { formatLineForSlack, tryAutoAssignEmoji } from '$lib/emoji';
@@ -23,6 +24,7 @@
   let emojiDropdownPos = $state({ top: 0, left: 0 });
   let newTask = $state('');
   let hasOverflow = $state(false);
+  let focusText = $state('');
   /** Pointer-based reorder (HTML5 DnD is unreliable in Tauri WKWebView). */
   const REORDER_THRESHOLD_PX = 8;
   type PendingPointer = { x: number; y: number; taskId: number; pointerId: number };
@@ -63,6 +65,14 @@
 
   let tasks = $derived(data.tasks);
   let emojiRules = $derived(data.emojiRules);
+  $effect(() => {
+    focusText = data.dayRow?.focus ?? '';
+  });
+
+  function saveFocus(value: string) {
+    const trimmed = value.trim();
+    updateDayFocus(data.date, trimmed ? trimmed : null).then(() => invalidateAll());
+  }
 
   function sameIdOrder(a: number[], b: number[]) {
     return a.length === b.length && a.every((v, i) => v === b[i]);
@@ -274,6 +284,22 @@
     class="flex-1 min-h-0 overflow-auto p-2"
     use:observeOverflow
   >
+    <div class="pb-2">
+      <textarea
+        use:autosize
+        bind:value={focusText}
+        rows={1}
+        placeholder="Focus…"
+        onblur={(e) => saveFocus(e.currentTarget.value)}
+        onkeydown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            (e.currentTarget as HTMLTextAreaElement).blur();
+          }
+        }}
+        class="w-full text-sm px-2 py-2 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none overflow-y-auto max-h-24"
+      ></textarea>
+    </div>
     <ul class="space-y-1 overflow-visible">
       {#each tasks as task, i (task.id)}
         <li
@@ -302,6 +328,12 @@
             tabindex="0"
             class="emoji-drag-handle w-8 h-8 shrink-0 flex items-center justify-center border border-gray-200 dark:border-gray-600 rounded cursor-grab active:cursor-grabbing relative touch-none select-none"
             onclick={(e) => onEmojiActivatorClick(task.id, e)}
+            onkeydown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onEmojiActivatorClick(task.id, e as unknown as MouseEvent);
+              }
+            }}
             onpointerdown={(e) => handleReorderPointerDown(task.id, e)}
             onpointermove={(e) => handleReorderPointerMove(e.currentTarget as HTMLElement, e)}
             onpointerup={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
@@ -328,9 +360,12 @@
           </div>
           {#if emojiDropdownOpen === task.id}
             <div
+              role="menu"
+              tabindex="-1"
               class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[180px] max-w-[min(100vw-2rem,20rem)] max-h-40 overflow-y-auto"
               style="top: {emojiDropdownPos.top}px; left: {emojiDropdownPos.left}px;"
               onclick={(e) => e.stopPropagation()}
+              onkeydown={(e) => e.stopPropagation()}
             >
               {#each emojiRules as rule (rule.id)}
                 <button

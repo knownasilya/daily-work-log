@@ -1,4 +1,5 @@
 import Database from '@tauri-apps/plugin-sql';
+import { parsePatterns, patternMatches } from '$lib/emoji';
 
 const DB_PATH = 'sqlite:daily-work-log.db';
 
@@ -26,6 +27,114 @@ export interface EmojiRule {
   pattern: string;
   sort_order: number;
   label: string | null;
+}
+
+export interface Day {
+  id: string;
+  day: string;
+  focus: string | null;
+  created_at: string;
+}
+
+type AppSettingRow = { key: string; value: string };
+
+export async function getAppSetting(key: string): Promise<string | null> {
+  const db = await getDb();
+  const rows = await db.select<AppSettingRow[]>(
+    'SELECT key, value FROM app_settings WHERE key = $1 LIMIT 1',
+    [key]
+  );
+  if (Array.isArray(rows) && rows.length > 0) return rows[0].value;
+  return null;
+}
+
+export async function setAppSetting(key: string, value: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('INSERT OR REPLACE INTO app_settings (key, value) VALUES ($1, $2)', [key, value]);
+}
+
+export async function getFocusPatternsSetting(): Promise<string[]> {
+  const raw = await getAppSetting('focus_patterns');
+  if (!raw) return [];
+  const patterns = parsePatterns(raw);
+  return patterns.map((p) => p.trim()).filter(Boolean);
+}
+
+export async function getFocusStripPrefixSetting(): Promise<boolean> {
+  const raw = await getAppSetting('focus_strip_prefix');
+  if (!raw) return false;
+  return raw === '1' || raw.toLowerCase() === 'true';
+}
+
+function stripPatternPrefix(content: string, pattern: string): string {
+  const trimmedPattern = pattern.trim();
+  if (!trimmedPattern) return content;
+
+  const regexMatch = /^\/(.*)\/$/.exec(trimmedPattern);
+  if (regexMatch) {
+    try {
+      const re = new RegExp(`^(?:${regexMatch[1]})`);
+      const m = re.exec(content);
+      if (m && m[0]) {
+        return content.slice(m[0].length).trimStart();
+      }
+      return content;
+    } catch {
+      return content;
+    }
+  }
+
+  if (content.startsWith(trimmedPattern)) {
+    return content.slice(trimmedPattern.length).trimStart();
+  }
+  return content;
+}
+
+export async function ensureDay(day: string): Promise<Day> {
+  const db = await getDb();
+  const existing = await db.select<Day[]>('SELECT * FROM days WHERE day = $1 LIMIT 1', [day]);
+  if (Array.isArray(existing) && existing.length > 0) return existing[0];
+
+  await db.execute('INSERT INTO days (id, day) VALUES ($1, $2)', [crypto.randomUUID(), day]);
+  const created = await db.select<Day[]>('SELECT * FROM days WHERE day = $1 LIMIT 1', [day]);
+  const dayRow = Array.isArray(created) && created.length > 0 ? created[0] : null;
+  if (!dayRow) throw new Error(`Failed to ensure day row exists for ${day}`);
+
+  try {
+    const patterns = await getFocusPatternsSetting();
+    if (patterns.length > 0) {
+      const [stripPrefix, lastDay] = await Promise.all([
+        getFocusStripPrefixSetting(),
+        getLastDay(),
+      ]);
+      if (lastDay) {
+        const entries = await getTasksForDate(lastDay);
+        const match = entries.find((e) => patterns.some((p) => patternMatches(e.content, p)));
+        if (match) {
+          const matchedPattern = patterns.find((p) => patternMatches(match.content, p)) ?? null;
+          let focus = match.content;
+          if (stripPrefix && matchedPattern) {
+            focus = stripPatternPrefix(focus, matchedPattern);
+          }
+          const trimmed = focus.trim();
+          if (trimmed) {
+            await updateDayFocus(day, trimmed);
+            const updated = await db.select<Day[]>('SELECT * FROM days WHERE day = $1 LIMIT 1', [day]);
+            if (Array.isArray(updated) && updated.length > 0) return updated[0];
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore: settings/focus seeding is best-effort
+  }
+
+  return dayRow;
+}
+
+export async function updateDayFocus(day: string, focus: string | null): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE days SET focus = $1 WHERE day = $2', [focus, day]);
 }
 
 export async function getTasksForDate(date: string): Promise<WorkLogEntry[]> {

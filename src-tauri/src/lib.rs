@@ -27,6 +27,18 @@ pub fn run() {
             sql: include_str!("../migrations/002_emoji_rule_label.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "days_table",
+            sql: include_str!("../migrations/003_days.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 4,
+            description: "app_settings_table",
+            sql: include_str!("../migrations/004_app_settings.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     let builder = tauri::Builder::default()

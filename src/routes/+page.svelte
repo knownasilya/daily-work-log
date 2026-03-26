@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { getLastDay } from '$lib/api/db';
+  import { ensureDay, getLastDay } from '$lib/api/db';
 
   let { data } = $props();
 
@@ -15,6 +15,9 @@
   });
 
   function startWorking() {
+    ensureDay(data.today).catch(() => {
+      // ignore; route load will ensure day row
+    });
     goto(`/day/${data.today}`);
   }
 </script>

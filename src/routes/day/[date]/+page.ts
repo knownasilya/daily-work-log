@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { getTasksForDate, getEmojiRules, getLastDay } from '$lib/api/db';
+import { ensureDay, getTasksForDate, getEmojiRules, getLastDay } from '$lib/api/db';
 import { toYYYYMMDD, isValidDateStr } from '$lib/utils';
 
 export async function load({ params }) {
@@ -8,7 +8,8 @@ export async function load({ params }) {
     redirect(302, `/day/${toYYYYMMDD(new Date())}`);
   }
 
-  const [tasks, emojiRules, lastDay] = await Promise.all([
+  const [dayRow, tasks, emojiRules, lastDay] = await Promise.all([
+    ensureDay(date),
     getTasksForDate(date),
     getEmojiRules(),
     getLastDay(),
@@ -16,6 +17,7 @@ export async function load({ params }) {
 
   return {
     date,
+    dayRow,
     tasks,
     emojiRules,
     isToday: date === toYYYYMMDD(new Date()),
