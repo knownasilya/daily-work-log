@@ -39,6 +39,12 @@ pub fn run() {
             sql: include_str!("../migrations/004_app_settings.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "day_note_column",
+            sql: include_str!("../migrations/005_day_note.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     let builder = tauri::Builder::default()

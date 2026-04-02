@@ -9,6 +9,7 @@
     getEmojiRules,
     reorderTasksForDate,
     updateDayFocus,
+    updateDayNote,
   } from '$lib/api/db';
   import { formatDatePretty } from '$lib/utils';
   import { formatLineForSlack, tryAutoAssignEmoji } from '$lib/emoji';
@@ -47,6 +48,7 @@
   let newTask = $state('');
   let hasOverflow = $state(false);
   let focusText = $state('');
+  let noteText = $state('');
   /** Pointer-based reorder (HTML5 DnD is unreliable in Tauri WKWebView). */
   const REORDER_THRESHOLD_PX = 8;
   type PendingPointer = { x: number; y: number; taskId: number; pointerId: number };
@@ -91,9 +93,18 @@
     focusText = data.dayRow?.focus ?? '';
   });
 
+  $effect(() => {
+    noteText = data.dayRow?.note ?? '';
+  });
+
   function saveFocus(value: string) {
     const trimmed = value.trim();
     updateDayFocus(data.date, trimmed ? trimmed : null).then(() => invalidateAll());
+  }
+
+  function saveNote(value: string) {
+    const trimmed = value.trim();
+    updateDayNote(data.date, trimmed ? trimmed : null).then(() => invalidateAll());
   }
 
   function sameIdOrder(a: number[], b: number[]) {
@@ -307,7 +318,13 @@
     use:observeOverflow
   >
     <div class="pb-2">
+      <label
+        for={`day-focus-${data.date}`}
+        class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
+        >Focus</label
+      >
       <textarea
+        id={`day-focus-${data.date}`}
         use:autosizeResync={JSON.stringify([data.date, data.dayRow?.focus ?? ''])}
         bind:value={focusText}
         rows={1}
@@ -322,7 +339,11 @@
         class="w-full text-sm px-2 py-2 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none overflow-y-auto max-h-24"
       ></textarea>
     </div>
-    <ul class="space-y-1 overflow-visible">
+    <div
+      class="mb-2 border-t border-gray-200 dark:border-gray-700"
+      aria-hidden="true"
+    ></div>
+    <ul class="pt-2 space-y-1 overflow-visible">
       {#each tasks as task, i (task.id)}
         <li
           data-task-row
@@ -464,6 +485,32 @@
         placeholder="Add task..."
             class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
       />
+    </div>
+    <div
+      class="mt-3 border-t border-gray-200 dark:border-gray-700"
+      aria-hidden="true"
+    ></div>
+    <div class="pt-2">
+      <label
+        for={`day-note-${data.date}`}
+        class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
+        >Note</label
+      >
+      <textarea
+        id={`day-note-${data.date}`}
+        use:autosizeResync={JSON.stringify([data.date, data.dayRow?.note ?? ''])}
+        bind:value={noteText}
+        rows={1}
+        placeholder="Note…"
+        onblur={(e) => saveNote(e.currentTarget.value)}
+        onkeydown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            (e.currentTarget as HTMLTextAreaElement).blur();
+          }
+        }}
+        class="w-full text-sm px-2 py-2 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none overflow-y-auto max-h-24"
+      ></textarea>
     </div>
   </section>
 

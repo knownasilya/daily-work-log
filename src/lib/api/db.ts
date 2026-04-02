@@ -33,6 +33,7 @@ export interface Day {
   id: string;
   day: string;
   focus: string | null;
+  note: string | null;
   created_at: string;
 }
 
@@ -137,6 +138,11 @@ export async function updateDayFocus(day: string, focus: string | null): Promise
   await db.execute('UPDATE days SET focus = $1 WHERE day = $2', [focus, day]);
 }
 
+export async function updateDayNote(day: string, note: string | null): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE days SET note = $1 WHERE day = $2', [note, day]);
+}
+
 export async function getTasksForDate(date: string): Promise<WorkLogEntry[]> {
   const db = await getDb();
   const rows = await db.select<WorkLogEntry[]>(
@@ -226,7 +232,7 @@ export type DayWithTaskCount = Day & { task_count: number };
 export async function getDays(): Promise<DayWithTaskCount[]> {
   const db = await getDb();
   const rows = await db.select<DayWithTaskCount[]>(
-    `SELECT d.id, d.day, d.focus, d.created_at,
+    `SELECT d.id, d.day, d.focus, d.note, d.created_at,
        (SELECT COUNT(*) FROM work_log_entries w WHERE w.date = d.day) AS task_count
      FROM days d
      ORDER BY d.day DESC`
