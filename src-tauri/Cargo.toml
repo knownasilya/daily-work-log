@@ -1,8 +1,8 @@
 [package]
 name = "daily-work-log"
-version = "0.2.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.2.1"
+description = "Log your work. Post on Slack."
+authors = ["Ilya Radchenko"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
