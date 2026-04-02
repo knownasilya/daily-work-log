@@ -16,6 +16,28 @@
   import NavDrawer from '$lib/components/NavDrawer.svelte';
   import autosize from 'svelte-autosize';
 
+  /**
+   * Autosize after layout: flex/scroll parents often assign width after first paint;
+   * the `autosize` lib only re-measures on input or window resize, so we bump on
+   * element resize and after the next frames.
+   */
+  function autosizeResync(node: HTMLTextAreaElement, _key: string) {
+    autosize(node);
+    const bump = () => autosize.update(node);
+    const ro = new ResizeObserver(bump);
+    ro.observe(node);
+    requestAnimationFrame(() => requestAnimationFrame(bump));
+    return {
+      update() {
+        bump();
+      },
+      destroy() {
+        ro.disconnect();
+        autosize.destroy(node);
+      },
+    };
+  }
+
   let { data } = $props();
 
   let drawerOpen = $state(false);
@@ -286,7 +308,7 @@
   >
     <div class="pb-2">
       <textarea
-        use:autosize
+        use:autosizeResync={JSON.stringify([data.date, data.dayRow?.focus ?? ''])}
         bind:value={focusText}
         rows={1}
         placeholder="Focus…"
