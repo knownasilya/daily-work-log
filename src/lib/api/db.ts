@@ -151,6 +151,7 @@ export async function addTask(
   content: string,
   emojiId?: string | null
 ): Promise<number> {
+  await ensureDay(date);
   const db = await getDb();
   const countResult = await db.select<[{ count: number }]>(
     'SELECT COUNT(*) as count FROM work_log_entries WHERE date = $1',
@@ -207,32 +208,30 @@ export async function setEntryEmoji(
   await updateTask(entryId, { emoji_id: emojiId });
 }
 
+/** Latest calendar day among `days` rows (by `day` string), or null if none. */
 export async function getLastDay(): Promise<string | null> {
   const db = await getDb();
-  const rows = await db.select<[{ date: string }]>(
-    'SELECT date FROM work_log_entries ORDER BY date DESC LIMIT 1'
+  const rows = await db.select<[{ day: string }]>(
+    'SELECT day FROM days ORDER BY day DESC LIMIT 1'
   );
   if (Array.isArray(rows) && rows.length > 0) {
-    return rows[0].date;
+    return rows[0].day;
   }
   return null;
 }
 
-export async function getDistinctDates(): Promise<string[]> {
-  const db = await getDb();
-  const rows = await db.select<[{ date: string }]>(
-    'SELECT DISTINCT date FROM work_log_entries ORDER BY date DESC'
-  );
-  return Array.isArray(rows) ? rows.map((r) => r.date) : [];
-}
+/** Day row plus task count for list views (history, etc.). */
+export type DayWithTaskCount = Day & { task_count: number };
 
-export async function getDateTaskCount(date: string): Promise<number> {
+export async function getDays(): Promise<DayWithTaskCount[]> {
   const db = await getDb();
-  const result = await db.select<[{ count: number }]>(
-    'SELECT COUNT(*) as count FROM work_log_entries WHERE date = $1',
-    [date]
+  const rows = await db.select<DayWithTaskCount[]>(
+    `SELECT d.id, d.day, d.focus, d.created_at,
+       (SELECT COUNT(*) FROM work_log_entries w WHERE w.date = d.day) AS task_count
+     FROM days d
+     ORDER BY d.day DESC`
   );
-  return Array.isArray(result) ? result[0]?.count ?? 0 : 0;
+  return Array.isArray(rows) ? rows : [];
 }
 
 export async function getEmojiRules(): Promise<EmojiRule[]> {

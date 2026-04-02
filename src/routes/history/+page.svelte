@@ -1,9 +1,9 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { getDistinctDates, getDateTaskCount, getLastDay } from '$lib/api/db';
+  import { getDays, getLastDay, type DayWithTaskCount } from '$lib/api/db';
   import { formatDatePretty } from '$lib/utils';
 
-  let dates = $state<{ date: string; count: number }[]>([]);
+  let days = $state<DayWithTaskCount[]>([]);
 
   async function goHome() {
     const lastDay = await getLastDay();
@@ -11,14 +11,8 @@
   }
 
   $effect(() => {
-    getDistinctDates().then((d) => {
-      Promise.all(
-        d.map((date) =>
-          getDateTaskCount(date).then((count) => ({ date, count }))
-        )
-      ).then((results) => {
-        dates = results;
-      });
+    getDays().then((d) => {
+      days = d;
     });
   });
 </script>
@@ -39,18 +33,18 @@
   </header>
 
   <main class="flex-1 overflow-auto p-2">
-    {#if dates.length === 0}
+    {#if days.length === 0}
       <p class="text-sm text-gray-500 py-4">No days yet.</p>
     {:else}
       <ul class="space-y-1">
-        {#each dates as { date, count } (date)}
+        {#each days as day (day.id)}
           <li>
             <button
-              onclick={() => goto(`/day/${date}`)}
+              onclick={() => goto(`/day/${day.day}`)}
               class="w-full text-left py-2 px-3 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 rounded flex justify-between items-center"
             >
-              <span>{formatDatePretty(date)}</span>
-              <span class="text-gray-500 text-xs">{count} task{count === 1 ? '' : 's'}</span>
+              <span>{formatDatePretty(day.day)}</span>
+              <span class="text-gray-500 text-xs">{day.task_count} task{day.task_count === 1 ? '' : 's'}</span>
             </button>
           </li>
         {/each}
