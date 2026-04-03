@@ -5,8 +5,11 @@
     addTask,
     updateTask,
     deleteTask,
+    deleteDay,
     setEntryEmoji,
     getEmojiRules,
+    getLastDay,
+    getLatestDayBefore,
     reorderTasksForDate,
     updateDayFocus,
     updateDayNote,
@@ -51,6 +54,13 @@
     | { kind: 'above'; right: number; bottom: number; maxWidthPx: number };
 
   let entryMenuPos = $state<EntryMenuPlacement>({
+    kind: 'below',
+    right: 0,
+    top: 0,
+    maxWidthPx: 280,
+  });
+  let dayHeaderMenuOpen = $state(false);
+  let dayHeaderMenuPos = $state<EntryMenuPlacement>({
     kind: 'below',
     right: 0,
     top: 0,
@@ -151,6 +161,7 @@
     if (emojiDropdownOpen === taskId) {
       emojiDropdownOpen = null;
     } else {
+      dayHeaderMenuOpen = false;
       entryMenuOpen = null;
       const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
       emojiDropdownPos = { top: rect.bottom + 4, left: rect.left };
@@ -185,6 +196,7 @@
     if (entryMenuOpen === taskId) {
       entryMenuOpen = null;
     } else {
+      dayHeaderMenuOpen = false;
       emojiDropdownOpen = null;
       const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
       entryMenuPos = computeEntryMenuPosition(rect);
@@ -330,11 +342,57 @@
   }
 
   function openDrawer() {
+    dayHeaderMenuOpen = false;
     drawerOpen = true;
   }
 
   function closeDrawer() {
     drawerOpen = false;
+  }
+
+  function toggleDayHeaderMenu(ev: MouseEvent) {
+    if (dayHeaderMenuOpen) {
+      dayHeaderMenuOpen = false;
+    } else {
+      emojiDropdownOpen = null;
+      entryMenuOpen = null;
+      const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+      dayHeaderMenuPos = computeEntryMenuPosition(rect);
+      dayHeaderMenuOpen = true;
+    }
+  }
+
+  async function handleDeleteDay() {
+    const message =
+      'Delete this day? All focus, note, and log entries for this date will be removed permanently.';
+
+    let confirmed = false;
+    try {
+      const { confirm: confirmDialog } = await import('@tauri-apps/plugin-dialog');
+      confirmed = await confirmDialog(message, { title: 'Delete day', kind: 'warning' });
+    } catch {
+      confirmed = typeof window !== 'undefined' && window.confirm(message);
+    }
+    if (!confirmed) return;
+
+    dayHeaderMenuOpen = false;
+
+    const previousDay = await getLatestDayBefore(data.date);
+
+    try {
+      await deleteDay(data.date);
+    } catch (e) {
+      console.error(e);
+      await invalidateAll();
+      return;
+    }
+
+    if (previousDay) {
+      await goto(`/day/${previousDay}`);
+      return;
+    }
+    const last = await getLastDay();
+    await goto(last ? `/day/${last}` : '/');
   }
 
 </script>
@@ -355,13 +413,54 @@
         {formatDatePretty(data.date)}
       </h1>
     </div>
-    {#if data.isLatestDay && !data.isToday}
+    <div class="flex items-center gap-2 shrink-0">
+      {#if data.isLatestDay && !data.isToday}
+        <button
+          onclick={() => goto(`/day/${toYYYYMMDD(new Date())}`)}
+          class="text-xs py-1 px-2 bg-blue-600 text-white rounded font-medium"
+        >
+          Start today
+        </button>
+      {/if}
       <button
-        onclick={() => goto(`/day/${toYYYYMMDD(new Date())}`)}
-        class="text-xs py-1 px-2 bg-blue-600 text-white rounded font-medium"
+        type="button"
+        onclick={(e) => toggleDayHeaderMenu(e)}
+        class="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 rounded"
+        aria-label="Day options"
+        aria-expanded={dayHeaderMenuOpen}
       >
-        Start today
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+          />
+        </svg>
       </button>
+    </div>
+    {#if dayHeaderMenuOpen}
+      <div
+        role="menu"
+        tabindex="-1"
+        class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
+        style:right="{dayHeaderMenuPos.right}px"
+        style:left="auto"
+        style:top={dayHeaderMenuPos.kind === 'below' ? `${dayHeaderMenuPos.top}px` : undefined}
+        style:bottom={dayHeaderMenuPos.kind === 'above' ? `${dayHeaderMenuPos.bottom}px` : undefined}
+        style:max-width="{dayHeaderMenuPos.maxWidthPx}px"
+        onclick={(e) => e.stopPropagation()}
+        onkeydown={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          role="menuitem"
+          onclick={() => handleDeleteDay()}
+          class="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
+        >
+          Delete day
+        </button>
+      </div>
     {/if}
   </header>
 
@@ -519,23 +618,28 @@
               <button
                 type="button"
                 onclick={() => handleTogglePinned(task.id, false)}
-                class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 shrink-0 rounded transition-[transform,margin] duration-150 ease-out group-hover:-translate-x-0.5"
+                class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 shrink-0 rounded"
                 aria-label="Unpin"
                 title="Unpin"
               >
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <!-- Bulletin-board pushpin: domed cap + rim + needle, tilted like stuck in cork -->
+                  <g
+                    transform="rotate(-11 12 10.5)"
                     stroke-linecap="round"
                     stroke-linejoin="round"
                     stroke-width="2"
-                    d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                  />
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                  />
+                  >
+                    <ellipse cx="12" cy="7" rx="4.5" ry="3.5" fill="currentColor" fill-opacity="0.14" />
+                    <path d="M9 10.5h6" />
+                    <path d="M12 10.5V19.5" />
+                  </g>
                 </svg>
               </button>
             {/if}
@@ -655,7 +759,7 @@
   {/if}
 </div>
 
-{#if emojiDropdownOpen !== null || entryMenuOpen !== null}
+{#if emojiDropdownOpen !== null || entryMenuOpen !== null || dayHeaderMenuOpen}
   <button
     type="button"
     class="fixed inset-0 z-40"
@@ -663,6 +767,7 @@
     onclick={() => {
       emojiDropdownOpen = null;
       entryMenuOpen = null;
+      dayHeaderMenuOpen = false;
     }}
   ></button>
 {/if}

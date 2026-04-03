@@ -258,6 +258,13 @@ export async function deleteTask(id: number): Promise<void> {
   await db.execute('DELETE FROM work_log_entries WHERE id = $1', [id]);
 }
 
+/** Removes the day row and all work log entries for that calendar date. */
+export async function deleteDay(day: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM work_log_entries WHERE date = $1', [day]);
+  await db.execute('DELETE FROM days WHERE day = $1', [day]);
+}
+
 export async function setEntryEmoji(
   entryId: number,
   emojiId: string | null
