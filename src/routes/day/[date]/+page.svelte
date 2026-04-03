@@ -43,8 +43,19 @@
 
   let drawerOpen = $state(false);
   let emojiDropdownOpen = $state<number | null>(null);
+  let entryMenuOpen = $state<number | null>(null);
   let copiedFeedback = $state(false);
   let emojiDropdownPos = $state({ top: 0, left: 0 });
+  type EntryMenuPlacement =
+    | { kind: 'below'; right: number; top: number; maxWidthPx: number }
+    | { kind: 'above'; right: number; bottom: number; maxWidthPx: number };
+
+  let entryMenuPos = $state<EntryMenuPlacement>({
+    kind: 'below',
+    right: 0,
+    top: 0,
+    maxWidthPx: 280,
+  });
   let newTask = $state('');
   let hasOverflow = $state(false);
   let focusText = $state('');
@@ -140,9 +151,44 @@
     if (emojiDropdownOpen === taskId) {
       emojiDropdownOpen = null;
     } else {
+      entryMenuOpen = null;
       const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
       emojiDropdownPos = { top: rect.bottom + 4, left: rect.left };
       emojiDropdownOpen = taskId;
+    }
+  }
+
+  /**
+   * Menu stays anchored: its right edge matches the kebab’s right edge (`right` in fixed layout).
+   * Width is capped so the panel stays on-screen to the left; opens above the icon when there’s no room below.
+   */
+  function computeEntryMenuPosition(anchor: DOMRect): EntryMenuPlacement {
+    const pad = 8;
+    const gap = 4;
+    const estH = 88;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const right = vw - anchor.right;
+    const maxWidthPx = Math.max(120, Math.min(anchor.right - pad, vw - 2 * pad, 224));
+
+    const topBelow = anchor.bottom + gap;
+    const openAbove = topBelow + estH > vh - pad;
+
+    if (openAbove) {
+      const bottom = vh - anchor.top + gap;
+      return { kind: 'above', right, bottom, maxWidthPx };
+    }
+    return { kind: 'below', right, top: topBelow, maxWidthPx };
+  }
+
+  function toggleEntryMenu(taskId: number, ev: MouseEvent) {
+    if (entryMenuOpen === taskId) {
+      entryMenuOpen = null;
+    } else {
+      emojiDropdownOpen = null;
+      const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+      entryMenuPos = computeEntryMenuPosition(rect);
+      entryMenuOpen = taskId;
     }
   }
 
@@ -260,7 +306,13 @@
   }
 
   function handleDelete(id: number) {
+    entryMenuOpen = null;
     deleteTask(id).then(() => invalidateAll());
+  }
+
+  function handleTogglePinned(id: number, pinned: boolean) {
+    entryMenuOpen = null;
+    updateTask(id, { pinned }).then(() => invalidateAll());
   }
 
   /** Manual emoji change: just set emoji_id, no pattern matching. */
@@ -462,16 +514,82 @@
             rows={1}
             class="flex-1 min-w-0 text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words"
           ></textarea>
-          <button
-            type="button"
-            onclick={() => handleDelete(task.id)}
-            class="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-600 shrink-0"
-            aria-label="Delete"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div class="flex items-start justify-end gap-0.5 shrink-0 -mr-2">
+            {#if task.pinned}
+              <button
+                type="button"
+                onclick={() => handleTogglePinned(task.id, false)}
+                class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 shrink-0 rounded transition-[transform,margin] duration-150 ease-out group-hover:-translate-x-0.5"
+                aria-label="Unpin"
+                title="Unpin"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                  />
+                </svg>
+              </button>
+            {/if}
+            <button
+              type="button"
+              onclick={(e) => toggleEntryMenu(task.id, e)}
+              class="shrink-0 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 overflow-hidden transition-[width,min-width,opacity,padding] duration-150 ease-out {reorderActive ||
+              entryMenuOpen === task.id
+                ? 'w-9 min-w-[2.25rem] opacity-100 p-1 pointer-events-auto'
+                : 'w-0 min-w-0 opacity-0 p-0 pointer-events-none group-hover:w-9 group-hover:min-w-[2.25rem] group-hover:opacity-100 group-hover:p-1 group-hover:pointer-events-auto'}"
+              aria-label="Task options"
+              aria-expanded={entryMenuOpen === task.id}
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                />
+              </svg>
+            </button>
+          </div>
+          {#if entryMenuOpen === task.id}
+            <div
+              role="menu"
+              tabindex="-1"
+              class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
+              style:right="{entryMenuPos.right}px"
+              style:left="auto"
+              style:top={entryMenuPos.kind === 'below' ? `${entryMenuPos.top}px` : undefined}
+              style:bottom={entryMenuPos.kind === 'above' ? `${entryMenuPos.bottom}px` : undefined}
+              style:max-width="{entryMenuPos.maxWidthPx}px"
+              onclick={(e) => e.stopPropagation()}
+              onkeydown={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onclick={() => handleTogglePinned(task.id, !task.pinned)}
+                class="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                {task.pinned ? 'Unpin' : 'Pin'}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onclick={() => handleDelete(task.id)}
+                class="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
+              >
+                Delete
+              </button>
+            </div>
+          {/if}
         </li>
       {/each}
     </ul>
@@ -537,12 +655,15 @@
   {/if}
 </div>
 
-{#if emojiDropdownOpen !== null}
+{#if emojiDropdownOpen !== null || entryMenuOpen !== null}
   <button
     type="button"
     class="fixed inset-0 z-40"
-    aria-label="Close dropdown"
-    onclick={() => (emojiDropdownOpen = null)}
+    aria-label="Close menu"
+    onclick={() => {
+      emojiDropdownOpen = null;
+      entryMenuOpen = null;
+    }}
   ></button>
 {/if}
 

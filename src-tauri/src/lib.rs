@@ -45,6 +45,12 @@ pub fn run() {
             sql: include_str!("../migrations/005_day_note.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "work_log_pinned",
+            sql: include_str!("../migrations/006_work_log_pinned.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     let builder = tauri::Builder::default()

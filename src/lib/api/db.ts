@@ -18,6 +18,11 @@ export interface WorkLogEntry {
   content: string;
   emoji_id: string | null;
   sort_order: number;
+  pinned: boolean;
+}
+
+function sqlBoolean(v: unknown): boolean {
+  return v === true || v === 1;
 }
 
 export interface EmojiRule {
@@ -91,10 +96,23 @@ function stripPatternPrefix(content: string, pattern: string): string {
   return content;
 }
 
+/** Latest `days.day` strictly before `day` (YYYY-MM-DD string order), or null. */
+export async function getLatestDayBefore(day: string): Promise<string | null> {
+  const db = await getDb();
+  const rows = await db.select<[{ day: string }]>(
+    'SELECT day FROM days WHERE day < $1 ORDER BY day DESC LIMIT 1',
+    [day]
+  );
+  if (Array.isArray(rows) && rows.length > 0) return rows[0].day;
+  return null;
+}
+
 export async function ensureDay(day: string): Promise<Day> {
   const db = await getDb();
   const existing = await db.select<Day[]>('SELECT * FROM days WHERE day = $1 LIMIT 1', [day]);
   if (Array.isArray(existing) && existing.length > 0) return existing[0];
+
+  const previousDay = await getLatestDayBefore(day);
 
   await db.execute('INSERT INTO days (id, day) VALUES ($1, $2)', [crypto.randomUUID(), day]);
   const created = await db.select<Day[]>('SELECT * FROM days WHERE day = $1 LIMIT 1', [day]);
@@ -102,27 +120,32 @@ export async function ensureDay(day: string): Promise<Day> {
   if (!dayRow) throw new Error(`Failed to ensure day row exists for ${day}`);
 
   try {
+    if (previousDay) {
+      await copyPinnedEntriesToNewDay(previousDay, day);
+    }
+  } catch {
+    // ignore: carry-forward is best-effort
+  }
+
+  try {
     const patterns = await getFocusPatternsSetting();
-    if (patterns.length > 0) {
-      const [stripPrefix, lastDay] = await Promise.all([
+    if (patterns.length > 0 && previousDay) {
+      const [stripPrefix, entries] = await Promise.all([
         getFocusStripPrefixSetting(),
-        getLastDay(),
+        getTasksForDate(previousDay),
       ]);
-      if (lastDay) {
-        const entries = await getTasksForDate(lastDay);
-        const match = entries.find((e) => patterns.some((p) => patternMatches(e.content, p)));
-        if (match) {
-          const matchedPattern = patterns.find((p) => patternMatches(match.content, p)) ?? null;
-          let focus = match.content;
-          if (stripPrefix && matchedPattern) {
-            focus = stripPatternPrefix(focus, matchedPattern);
-          }
-          const trimmed = focus.trim();
-          if (trimmed) {
-            await updateDayFocus(day, trimmed);
-            const updated = await db.select<Day[]>('SELECT * FROM days WHERE day = $1 LIMIT 1', [day]);
-            if (Array.isArray(updated) && updated.length > 0) return updated[0];
-          }
+      const match = entries.find((e) => patterns.some((p) => patternMatches(e.content, p)));
+      if (match) {
+        const matchedPattern = patterns.find((p) => patternMatches(match.content, p)) ?? null;
+        let focus = match.content;
+        if (stripPrefix && matchedPattern) {
+          focus = stripPatternPrefix(focus, matchedPattern);
+        }
+        const trimmed = focus.trim();
+        if (trimmed) {
+          await updateDayFocus(day, trimmed);
+          const updated = await db.select<Day[]>('SELECT * FROM days WHERE day = $1 LIMIT 1', [day]);
+          if (Array.isArray(updated) && updated.length > 0) return updated[0];
         }
       }
     }
@@ -145,11 +168,33 @@ export async function updateDayNote(day: string, note: string | null): Promise<v
 
 export async function getTasksForDate(date: string): Promise<WorkLogEntry[]> {
   const db = await getDb();
-  const rows = await db.select<WorkLogEntry[]>(
+  const rows = await db.select<Record<string, unknown>[]>(
     'SELECT * FROM work_log_entries WHERE date = $1 ORDER BY sort_order, id',
     [date]
   );
-  return Array.isArray(rows) ? rows : [];
+  if (!Array.isArray(rows)) return [];
+  return rows.map((r) => ({
+    id: Number(r.id),
+    date: String(r.date),
+    content: String(r.content),
+    emoji_id: r.emoji_id != null ? String(r.emoji_id) : null,
+    sort_order: Number(r.sort_order),
+    pinned: sqlBoolean(r.pinned),
+  }));
+}
+
+async function copyPinnedEntriesToNewDay(sourceDate: string, targetDate: string): Promise<void> {
+  const db = await getDb();
+  const entries = await getTasksForDate(sourceDate);
+  let sortOrder = 0;
+  for (const e of entries) {
+    if (!e.pinned) continue;
+    await db.execute(
+      'INSERT INTO work_log_entries (date, content, emoji_id, sort_order, pinned) VALUES ($1, $2, $3, $4, TRUE)',
+      [targetDate, e.content, e.emoji_id, sortOrder]
+    );
+    sortOrder += 1;
+  }
 }
 
 export async function addTask(
@@ -175,7 +220,7 @@ export async function addTask(
 
 export async function updateTask(
   id: number,
-  updates: { content?: string; emoji_id?: string | null }
+  updates: { content?: string; emoji_id?: string | null; pinned?: boolean }
 ): Promise<void> {
   const db = await getDb();
   if (updates.content !== undefined) {
@@ -187,6 +232,12 @@ export async function updateTask(
   if (updates.emoji_id !== undefined) {
     await db.execute('UPDATE work_log_entries SET emoji_id = $1 WHERE id = $2', [
       updates.emoji_id,
+      id,
+    ]);
+  }
+  if (updates.pinned !== undefined) {
+    await db.execute('UPDATE work_log_entries SET pinned = $1 WHERE id = $2', [
+      updates.pinned ? 1 : 0,
       id,
     ]);
   }
