@@ -349,22 +349,25 @@
   });
 </script>
 
-<div class="min-h-screen flex flex-col bg-white dark:bg-gray-900">
-  <header class="flex items-center gap-2 p-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
-    <button
-      type="button"
-      onclick={goHome}
-      class="p-1"
-      aria-label="Home"
+<div class="h-dvh flex flex-col bg-white dark:bg-gray-900">
+  <main class="flex min-h-0 flex-1 flex-col overflow-y-auto" onpaste={handlePaste}>
+    <header
+      class="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-gray-900"
     >
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-      </svg>
-    </button>
-    <h1 class="text-sm font-medium">Settings</h1>
-  </header>
+      <button
+        type="button"
+        onclick={goHome}
+        class="p-1"
+        aria-label="Home"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+        </svg>
+      </button>
+      <h1 class="text-sm font-medium">Settings</h1>
+    </header>
 
-  <main class="flex-1 overflow-auto p-4" onpaste={handlePaste}>
+    <div class="p-4">
     <div class="space-y-8">
       <section class="space-y-2">
         <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Appearance</h2>
@@ -787,6 +790,7 @@
         <p class="text-sm text-gray-500">No emoji rules. Add one above.</p>
       {/if}
       </section>
+    </div>
     </div>
   </main>
 </div>

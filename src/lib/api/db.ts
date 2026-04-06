@@ -304,6 +304,28 @@ export async function getDays(): Promise<DayWithTaskCount[]> {
   return Array.isArray(rows) ? rows : [];
 }
 
+/** Days whose focus, note, or any log entry content contains `query` (case-insensitive). */
+export async function searchDaysByText(query: string): Promise<DayWithTaskCount[]> {
+  const t = query.trim().toLowerCase();
+  if (!t) return getDays();
+
+  const db = await getDb();
+  const rows = await db.select<DayWithTaskCount[]>(
+    `SELECT d.id, d.day, d.focus, d.note, d.created_at,
+       (SELECT COUNT(*) FROM work_log_entries w WHERE w.date = d.day) AS task_count
+     FROM days d
+     WHERE instr(lower(coalesce(d.focus, '')), $1) > 0
+        OR instr(lower(coalesce(d.note, '')), $1) > 0
+        OR EXISTS (
+          SELECT 1 FROM work_log_entries w
+          WHERE w.date = d.day AND instr(lower(w.content), $1) > 0
+        )
+     ORDER BY d.day DESC`,
+    [t]
+  );
+  return Array.isArray(rows) ? rows : [];
+}
+
 export async function getEmojiRules(): Promise<EmojiRule[]> {
   const db = await getDb();
   const rows = await db.select<EmojiRule[]>(
