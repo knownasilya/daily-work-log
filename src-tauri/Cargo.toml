@@ -1,6 +1,6 @@
 [package]
 name = "daily-work-log"
-version = "0.2.1"
+version = "0.3.0"
 description = "Log your work. Post on Slack."
 authors = ["Ilya Radchenko"]
 edition = "2021"
