@@ -12,6 +12,16 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+#[cfg(desktop)]
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = app.emit_to("main", "tray-open", ());
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = vec![
@@ -53,7 +63,14 @@ pub fn run() {
         },
     ];
 
-    let builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_window_state::Builder::new().build());
+    }
+
+    let builder = builder
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:daily-work-log.db", migrations)
@@ -79,12 +96,7 @@ pub fn run() {
                     .show_menu_on_left_click(false)
                     .on_menu_event(move |app, event| match event.id.as_ref() {
                         "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.unminimize();
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                                let _ = app.emit_to("main", "tray-open", ());
-                            }
+                            show_main_window(&app);
                         }
                         "quit" => {
                             app.exit(0);
@@ -92,19 +104,19 @@ pub fn run() {
                         _ => {}
                     })
                     .on_tray_icon_event(|tray, event| {
-                        if let TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
-                        } = event
-                        {
-                            let app = tray.app_handle();
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.unminimize();
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                                let _ = app.emit_to("main", "tray-open", ());
-                            }
+                        let app = tray.app_handle();
+                        match &event {
+                            TrayIconEvent::Click {
+                                button: MouseButton::Left,
+                                button_state: MouseButtonState::Up,
+                                ..
+                            } => show_main_window(&app),
+                            #[cfg(target_os = "windows")]
+                            TrayIconEvent::DoubleClick {
+                                button: MouseButton::Left,
+                                ..
+                            } => show_main_window(&app),
+                            _ => {}
                         }
                     })
                     .build(app);
@@ -125,7 +137,14 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
 
-    app.run(move |_app_handle, event| {
+    app.run(move |app_handle, event| {
+        // macOS Dock icon click (applicationShouldHandleReopen).
+        // Always show/focus main: hidden windows can still leave `has_visible_windows` true in edge cases.
+        #[cfg(target_os = "macos")]
+        if let RunEvent::Reopen { .. } = &event {
+            show_main_window(app_handle);
+        }
+
         #[cfg(desktop)]
         if let RunEvent::ExitRequested { api, code, .. } = &event {
             // Keep app running when window is closed so tray icon persists

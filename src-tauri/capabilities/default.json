@@ -12,6 +12,7 @@
     "sql:allow-execute",
     "sql:allow-load",
     "sql:allow-select",
-    "dialog:default"
+    "dialog:default",
+    "window-state:default"
   ]
 }
