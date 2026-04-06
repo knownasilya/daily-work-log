@@ -72,6 +72,12 @@ export async function getFocusStripPrefixSetting(): Promise<boolean> {
   return raw === '1' || raw.toLowerCase() === 'true';
 }
 
+export async function getAlwaysOnTopSetting(): Promise<boolean> {
+  const raw = await getAppSetting('always_on_top');
+  if (!raw) return false;
+  return raw === '1' || raw.toLowerCase() === 'true';
+}
+
 function stripPatternPrefix(content: string, pattern: string): string {
   const trimmedPattern = pattern.trim();
   if (!trimmedPattern) return content;

@@ -10,8 +10,10 @@
     type EmojiRule,
     getFocusPatternsSetting,
     getFocusStripPrefixSetting,
+    getAlwaysOnTopSetting,
     setAppSetting,
   } from '$lib/api/db';
+  import { applyAlwaysOnTop } from '$lib/tauri-window';
   import { parsePatterns, validatePattern as checkPatternSyntax } from '$lib/emoji';
   let rules = $state<EmojiRule[]>([]);
   let newRule = $state({ image: '', text: '', label: '', patterns: [''] });
@@ -21,6 +23,7 @@
   let editImageInputEl = $state<HTMLInputElement | undefined>(undefined);
   let focusPatterns = $state<string[]>(['']);
   let focusStripPrefix = $state(false);
+  let alwaysOnTop = $state(false);
   let focusRegexError = $state<string | null>(null);
 
   let editingRuleId = $state<string | null>(null);
@@ -307,6 +310,11 @@
     return r.ok;
   }
 
+  async function saveAlwaysOnTopSetting() {
+    await setAppSetting('always_on_top', alwaysOnTop ? '1' : '0');
+    await applyAlwaysOnTop(alwaysOnTop);
+  }
+
   async function saveFocusSettings() {
     const validPatterns = focusPatterns.map((p) => p.trim()).filter(Boolean);
     for (const p of validPatterns) {
@@ -337,6 +345,7 @@
       focusPatterns = p.length > 0 ? [...p] : [''];
     });
     getFocusStripPrefixSetting().then((v) => (focusStripPrefix = v));
+    getAlwaysOnTopSetting().then((v) => (alwaysOnTop = v));
   });
 </script>
 
@@ -375,6 +384,19 @@
           </button>
         {/each}
         </div>
+      </section>
+
+      <section class="space-y-2">
+        <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Window</h2>
+        <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 select-none p-3 border dark:border-gray-700 rounded">
+          <input
+            type="checkbox"
+            bind:checked={alwaysOnTop}
+            onchange={saveAlwaysOnTopSetting}
+            class="w-4 h-4"
+          />
+          Keep window above other windows
+        </label>
       </section>
 
       <section class="space-y-3">
