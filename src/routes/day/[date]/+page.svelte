@@ -67,7 +67,6 @@
     maxWidthPx: 280,
   });
   let newTask = $state('');
-  let hasOverflow = $state(false);
   let focusText = $state('');
   let noteText = $state('');
   /** Pointer-based reorder (HTML5 DnD is unreliable in Tauri WKWebView). */
@@ -93,20 +92,6 @@
     document.documentElement.classList.remove('dwl-reorder-dragging');
   });
 
-  function observeOverflow(el: HTMLElement) {
-    const check = () => (hasOverflow = el.scrollHeight > el.clientHeight);
-    const ro = new ResizeObserver(check);
-    const mo = new MutationObserver(check);
-    ro.observe(el);
-    mo.observe(el, { childList: true, subtree: true });
-    check();
-    return {
-      destroy() {
-        ro.disconnect();
-        mo.disconnect();
-      },
-    };
-  }
 
   let tasks = $derived(data.tasks);
   let emojiRules = $derived(data.emojiRules);
@@ -466,7 +451,6 @@
 
   <section
     class="flex-1 min-h-0 overflow-auto p-2"
-    use:observeOverflow
   >
     <div class="pb-2">
       <label
@@ -731,7 +715,7 @@
             (e.currentTarget as HTMLTextAreaElement).blur();
           }
         }}
-        class="w-full text-sm px-2 py-2 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none overflow-y-auto max-h-24"
+        class="w-full text-sm px-2 py-2 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none"
       ></textarea>
     </div>
   </section>
