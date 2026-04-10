@@ -18,29 +18,7 @@
   import { formatLineForSlack, tryAutoAssignEmoji } from '$lib/emoji';
   import { toYYYYMMDD } from '$lib/utils';
   import NavDrawer from '$lib/components/NavDrawer.svelte';
-  import autosize from 'svelte-autosize';
-
-  /**
-   * Autosize after layout: flex/scroll parents often assign width after first paint;
-   * the `autosize` lib only re-measures on input or window resize, so we bump on
-   * element resize and after the next frames.
-   */
-  function autosizeResync(node: HTMLTextAreaElement, _key: string) {
-    autosize(node);
-    const bump = () => autosize.update(node);
-    const ro = new ResizeObserver(bump);
-    ro.observe(node);
-    requestAnimationFrame(() => requestAnimationFrame(bump));
-    return {
-      update() {
-        bump();
-      },
-      destroy() {
-        ro.disconnect();
-        autosize.destroy(node);
-      },
-    };
-  }
+  import RichText from '$lib/components/RichText.svelte';
 
   let { data } = $props();
 
@@ -458,21 +436,17 @@
         class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
         >Focus</label
       >
-      <textarea
+      <RichText
         id={`day-focus-${data.date}`}
-        use:autosizeResync={JSON.stringify([data.date, data.dayRow?.focus ?? ''])}
-        bind:value={focusText}
-        rows={1}
+        value={focusText}
+        onSave={saveFocus}
         placeholder="Focus…"
-        onblur={(e) => saveFocus(e.currentTarget.value)}
-        onkeydown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            (e.currentTarget as HTMLTextAreaElement).blur();
-          }
-        }}
-        class="w-full text-sm px-2 py-2 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none overflow-y-auto max-h-24"
-      ></textarea>
+        saveOn="cmdenter"
+        resync={true}
+        resyncKey={JSON.stringify([data.date, data.dayRow?.focus ?? ''])}
+        wrapperClass="w-full"
+        class="text-sm px-2 py-2 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none"
+      />
     </div>
     <div
       class="mb-2 border-t border-gray-200 dark:border-gray-700"
@@ -580,23 +554,14 @@
               {/if}
             </div>
           {/if}
-          <textarea
-            use:autosize
+          <RichText
             value={task.content}
-            onblur={(e) => handleUpdateContent(task.id, e.currentTarget.value)}
-            onkeydown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                e.currentTarget.blur();
-              }
-              if (e.key === 'Backspace' && !e.currentTarget.value) {
-                e.preventDefault();
-                handleDelete(task.id);
-              }
-            }}
-            rows={1}
-            class="flex-1 min-w-0 text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words"
-          ></textarea>
+            onSave={(val) => handleUpdateContent(task.id, val)}
+            saveOn="enter"
+            onEmptyBackspace={() => handleDelete(task.id)}
+            wrapperClass="flex-1 min-w-0"
+            class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words"
+          />
           <div class="flex items-start justify-end gap-0.5 shrink-0 -mr-2">
             {#if task.pinned}
               <button
@@ -702,21 +667,17 @@
         class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
         >Note</label
       >
-      <textarea
+      <RichText
         id={`day-note-${data.date}`}
-        use:autosizeResync={JSON.stringify([data.date, data.dayRow?.note ?? ''])}
-        bind:value={noteText}
-        rows={1}
+        value={noteText}
+        onSave={saveNote}
         placeholder="Note…"
-        onblur={(e) => saveNote(e.currentTarget.value)}
-        onkeydown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            (e.currentTarget as HTMLTextAreaElement).blur();
-          }
-        }}
-        class="w-full text-sm px-2 py-2 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none"
-      ></textarea>
+        saveOn="cmdenter"
+        resync={true}
+        resyncKey={JSON.stringify([data.date, data.dayRow?.note ?? ''])}
+        wrapperClass="w-full"
+        class="text-sm px-2 py-2 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none"
+      />
     </div>
   </section>
 
