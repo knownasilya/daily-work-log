@@ -294,6 +294,57 @@
     };
   }
 
+  let importError = $state<string | null>(null);
+  let importFileInputEl = $state<HTMLInputElement | undefined>(undefined);
+
+  function exportRules() {
+    const exportData = rules.map(({ image, text, label, pattern }) => ({ image, text, label, pattern }));
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'emoji-rules.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importRules(file: File) {
+    importError = null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      importError = 'Invalid JSON file.';
+      return;
+    }
+    if (!Array.isArray(parsed)) {
+      importError = 'Expected a JSON array.';
+      return;
+    }
+    for (const item of parsed) {
+      if (typeof item !== 'object' || item === null ||
+          typeof (item as Record<string, unknown>).image !== 'string' ||
+          typeof (item as Record<string, unknown>).text !== 'string' ||
+          typeof (item as Record<string, unknown>).pattern !== 'string') {
+        importError = 'Each rule must have image, text, and pattern fields.';
+        return;
+      }
+    }
+    const base = rules.length > 0 ? Math.max(...rules.map((r) => r.sort_order)) + 1 : 0;
+    for (let i = 0; i < parsed.length; i++) {
+      const item = parsed[i] as { image: string; text: string; pattern: string; label?: string | null };
+      await upsertEmojiRule({
+        id: crypto.randomUUID(),
+        image: item.image,
+        text: item.text,
+        pattern: item.pattern,
+        sort_order: base + i,
+        label: item.label ?? null,
+      });
+    }
+    rules = await getEmojiRules();
+  }
+
   function addFocusPattern() {
     focusPatterns = [...focusPatterns, ''];
   }
@@ -580,10 +631,30 @@
 
       <section class="space-y-3">
         <div>
-          <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Emoji rules</h2>
+          <div class="flex items-center justify-between">
+            <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Emoji rules</h2>
+            <div class="flex gap-2">
+              <button type="button" onclick={exportRules} class="text-xs text-blue-600 dark:text-blue-400 hover:underline">Export</button>
+              <button type="button" onclick={() => importFileInputEl?.click()} class="text-xs text-blue-600 dark:text-blue-400 hover:underline">Import</button>
+              <input
+                bind:this={importFileInputEl}
+                type="file"
+                accept=".json"
+                class="hidden"
+                onchange={(e) => {
+                  const file = (e.currentTarget as HTMLInputElement).files?.[0];
+                  if (file) importRules(file);
+                  (e.currentTarget as HTMLInputElement).value = '';
+                }}
+              />
+            </div>
+          </div>
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Order is used when auto-assigning an emoji for new tasks: the first rule wins.
           </p>
+          {#if importError}
+            <p class="text-xs text-red-600">{importError}</p>
+          {/if}
         </div>
         <ul class="space-y-3">
         {#each rules as rule, ruleIndex (rule.id)}
