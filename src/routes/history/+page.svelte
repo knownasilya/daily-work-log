@@ -19,8 +19,21 @@
       const seq = ++loadSeq;
       void (async () => {
         const t = q.trim();
-        const next = t ? await searchDaysByText(t) : await getDays();
-        if (seq === loadSeq) days = next;
+        if (!t) {
+          const next = await getDays();
+          if (seq === loadSeq) days = next;
+          return;
+        }
+        const tLower = t.toLowerCase();
+        const [dbResults, allDays] = await Promise.all([searchDaysByText(t), getDays()]);
+        if (seq !== loadSeq) return;
+        const ids = new Set(dbResults.map((d) => d.id));
+        const prettyMatches = allDays.filter(
+          (d) => !ids.has(d.id) && formatDatePretty(d.day).toLowerCase().includes(tLower)
+        );
+        const merged = [...dbResults, ...prettyMatches];
+        merged.sort((a, b) => b.day.localeCompare(a.day));
+        days = merged;
       })();
     }, delay);
     return () => clearTimeout(id);
