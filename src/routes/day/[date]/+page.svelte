@@ -564,9 +564,9 @@
             saveOn="enter"
             onEmptyBackspace={() => handleDelete(task.id)}
             wrapperClass="flex-1 min-w-0"
-            class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words"
+            class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words {task.pinned ? 'pr-14' : 'pr-8'}"
           />
-          <div class="flex items-start justify-end gap-0.5 shrink-0 -mr-2">
+          <div class="absolute right-0 top-0 flex items-center gap-0.5">
             {#if task.pinned}
               <button
                 type="button"
@@ -599,10 +599,9 @@
             <button
               type="button"
               onclick={(e) => toggleEntryMenu(task.id, e)}
-              class="shrink-0 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 overflow-hidden transition-[width,min-width,opacity,padding] duration-150 ease-out {reorderActive ||
-              entryMenuOpen === task.id
-                ? 'w-9 min-w-[2.25rem] opacity-100 p-1 pointer-events-auto'
-                : 'w-0 min-w-0 opacity-0 p-0 pointer-events-none group-hover:w-9 group-hover:min-w-[2.25rem] group-hover:opacity-100 group-hover:p-1 group-hover:pointer-events-auto'}"
+              class="p-1 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-opacity duration-150 {reorderActive || entryMenuOpen === task.id
+                ? 'opacity-100 pointer-events-auto'
+                : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'}"
               aria-label="Task options"
               aria-expanded={entryMenuOpen === task.id}
             >
