@@ -1,3 +1,7 @@
+<svelte:head>
+  <title>{formatDatePretty(data.date)}</title>
+</svelte:head>
+
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { invalidateAll } from '$app/navigation';
@@ -681,27 +685,50 @@
     </div>
   </section>
 
-  {#if tasks.length > 0}
-    <footer class="p-2 border-t border-gray-200 dark:border-gray-700 shrink-0">
-      <button
-        onclick={copyToSlack}
-        class="w-full py-2 text-sm font-medium rounded transition-all duration-200 {copiedFeedback
-          ? 'bg-green-500 text-white scale-[1.02]'
-          : 'bg-green-600 text-white hover:bg-green-700'}"
-      >
-        {#if copiedFeedback}
-          <span class="inline-flex items-center gap-1.5">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-            </svg>
-            Copied!
-          </span>
-        {:else}
-          Copy tasks
-        {/if}
-      </button>
-    </footer>
-  {/if}
+  <footer class="p-2 border-t border-gray-200 dark:border-gray-700 shrink-0 flex items-center gap-2">
+    <button
+      type="button"
+      onclick={() => data.prevDay && goto(`/day/${data.prevDay}`)}
+      disabled={!data.prevDay}
+      class="p-1.5 rounded text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 disabled:opacity-30 disabled:pointer-events-none"
+      aria-label="Previous day"
+      title={data.prevDay ? formatDatePretty(data.prevDay) : 'No previous day'}
+    >
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+      </svg>
+    </button>
+    <button
+      onclick={copyToSlack}
+      disabled={tasks.length === 0}
+      class="flex-1 mx-4 py-2 text-sm font-medium rounded transition-all duration-200 disabled:opacity-40 disabled:pointer-events-none {copiedFeedback
+        ? 'bg-green-500 text-white scale-[1.02]'
+        : 'bg-green-600 text-white hover:bg-green-700'}"
+    >
+      {#if copiedFeedback}
+        <span class="inline-flex items-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+          </svg>
+          Copied!
+        </span>
+      {:else}
+        Copy tasks
+      {/if}
+    </button>
+    <button
+      type="button"
+      onclick={() => data.nextDay && goto(`/day/${data.nextDay}`)}
+      disabled={!data.nextDay}
+      class="p-1.5 rounded text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 disabled:opacity-30 disabled:pointer-events-none"
+      aria-label="Next day"
+      title={data.nextDay ? formatDatePretty(data.nextDay) : 'No next day'}
+    >
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+      </svg>
+    </button>
+  </footer>
 </div>
 
 {#if emojiDropdownOpen !== null || entryMenuOpen !== null || dayHeaderMenuOpen}

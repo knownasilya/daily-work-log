@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { ensureDay, getTasksForDate, getEmojiRules, getLastDay } from '$lib/api/db';
+import { ensureDay, getTasksForDate, getEmojiRules, getLastDay, getLatestDayBefore, getEarliestDayAfter } from '$lib/api/db';
 import { toYYYYMMDD, isValidDateStr } from '$lib/utils';
 
 export async function load({ params }: { params: { date: string } }) {
@@ -11,10 +11,12 @@ export async function load({ params }: { params: { date: string } }) {
   // ensureDay must finish before getTasksForDate: new days copy pinned entries inside ensureDay,
   // and parallel getTasksForDate would often resolve first with an empty list.
   const dayRow = await ensureDay(date);
-  const [tasks, emojiRules, lastDay] = await Promise.all([
+  const [tasks, emojiRules, lastDay, prevDay, nextDay] = await Promise.all([
     getTasksForDate(date),
     getEmojiRules(),
     getLastDay(),
+    getLatestDayBefore(date),
+    getEarliestDayAfter(date),
   ]);
 
   return {
@@ -24,5 +26,7 @@ export async function load({ params }: { params: { date: string } }) {
     emojiRules,
     isToday: date === toYYYYMMDD(new Date()),
     isLatestDay: lastDay !== null && date === lastDay,
+    prevDay,
+    nextDay,
   };
 }

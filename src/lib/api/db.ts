@@ -113,6 +113,17 @@ export async function getLatestDayBefore(day: string): Promise<string | null> {
   return null;
 }
 
+/** Earliest `days.day` strictly after `day` (YYYY-MM-DD string order), or null. */
+export async function getEarliestDayAfter(day: string): Promise<string | null> {
+  const db = await getDb();
+  const rows = await db.select<[{ day: string }]>(
+    'SELECT day FROM days WHERE day > $1 ORDER BY day ASC LIMIT 1',
+    [day]
+  );
+  if (Array.isArray(rows) && rows.length > 0) return rows[0].day;
+  return null;
+}
+
 export async function ensureDay(day: string): Promise<Day> {
   const db = await getDb();
   const existing = await db.select<Day[]>('SELECT * FROM days WHERE day = $1 LIMIT 1', [day]);
