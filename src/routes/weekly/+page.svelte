@@ -4,6 +4,7 @@
     getLastDay,
     getWeekTotals,
     getWeeklyEmojiSummary,
+    getWeeklyExcludedEmojisSetting,
     type WeekTotal,
     type WeeklyEmojiRow,
   } from '$lib/api/db';
@@ -49,11 +50,14 @@
 
   $effect(() => {
     void (async () => {
-      const [emojiRows, totals] = await Promise.all([
+      const [emojiRows, totals, excludedIds] = await Promise.all([
         getWeeklyEmojiSummary(),
         getWeekTotals(),
+        getWeeklyExcludedEmojisSetting(),
       ]);
-      weeks = mergeWeekData(totals, emojiRows);
+      const excluded = new Set(excludedIds);
+      const filtered = emojiRows.filter((r) => !excluded.has(r.emoji_id));
+      weeks = mergeWeekData(totals, filtered);
     })();
   });
 

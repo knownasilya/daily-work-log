@@ -878,7 +878,7 @@
         <div>
           <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Weekly summary</h2>
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Choose which labeled emojis are excluded from the weekly summary.
+            Choose which labeled emojis are included in the weekly summary.
           </p>
         </div>
         {#if labeledRules.length === 0}
