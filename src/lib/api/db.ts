@@ -373,3 +373,80 @@ export async function deleteEmojiRule(id: string): Promise<void> {
   await db.execute('DELETE FROM emoji_rules WHERE id = $1', [id]);
   await db.execute('UPDATE work_log_entries SET emoji_id = NULL WHERE emoji_id = $1', [id]);
 }
+
+export interface WeekTotal {
+  week: string;
+  week_start: string;
+  week_end: string;
+  total_tasks: number;
+}
+
+export interface WeeklyEmojiRow {
+  week: string;
+  emoji_id: string;
+  emoji_image: string;
+  emoji_text: string;
+  emoji_label: string;
+  count: number;
+}
+
+export async function getWeeklyExcludedEmojisSetting(): Promise<string[]> {
+  const raw = await getAppSetting('weekly_excluded_emojis');
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setWeeklyExcludedEmojisSetting(ids: string[]): Promise<void> {
+  await setAppSetting('weekly_excluded_emojis', JSON.stringify(ids));
+}
+
+export async function getWeekTotals(): Promise<WeekTotal[]> {
+  const db = await getDb();
+  const rows = await db.select<Record<string, unknown>[]>(
+    `SELECT strftime('%Y-%W', date) AS week,
+            MIN(date) AS week_start,
+            MAX(date) AS week_end,
+            COUNT(*) AS total_tasks
+     FROM work_log_entries
+     GROUP BY strftime('%Y-%W', date)
+     ORDER BY week DESC`
+  );
+  if (!Array.isArray(rows)) return [];
+  return rows.map((r) => ({
+    week: String(r.week),
+    week_start: String(r.week_start),
+    week_end: String(r.week_end),
+    total_tasks: Number(r.total_tasks),
+  }));
+}
+
+export async function getWeeklyEmojiSummary(): Promise<WeeklyEmojiRow[]> {
+  const db = await getDb();
+  const rows = await db.select<Record<string, unknown>[]>(
+    `SELECT strftime('%Y-%W', wle.date) AS week,
+            er.id    AS emoji_id,
+            er.image AS emoji_image,
+            er.text  AS emoji_text,
+            er.label AS emoji_label,
+            COUNT(*) AS count
+     FROM work_log_entries wle
+     JOIN emoji_rules er ON wle.emoji_id = er.id
+     WHERE er.label IS NOT NULL AND TRIM(er.label) != ''
+     GROUP BY strftime('%Y-%W', wle.date), er.id
+     ORDER BY week DESC, count DESC`
+  );
+  if (!Array.isArray(rows)) return [];
+  return rows.map((r) => ({
+    week: String(r.week),
+    emoji_id: String(r.emoji_id),
+    emoji_image: String(r.emoji_image),
+    emoji_text: String(r.emoji_text),
+    emoji_label: String(r.emoji_label),
+    count: Number(r.count),
+  }));
+}

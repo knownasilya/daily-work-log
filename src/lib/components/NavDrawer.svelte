@@ -32,6 +32,13 @@
         Previous days
       </a>
       <a
+        href="/weekly"
+        class="block w-full text-left py-2 px-3 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+        onclick={onclose}
+      >
+        Weekly summary
+      </a>
+      <a
         href="/setup"
         class="block w-full text-left py-2 px-3 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
         onclick={onclose}

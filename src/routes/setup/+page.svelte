@@ -12,6 +12,8 @@
     getFocusStripPrefixSetting,
     getAlwaysOnTopSetting,
     setAppSetting,
+    getWeeklyExcludedEmojisSetting,
+    setWeeklyExcludedEmojisSetting,
   } from '$lib/api/db';
   import { applyAlwaysOnTop } from '$lib/tauri-window';
   import { parsePatterns, validatePattern as checkPatternSyntax } from '$lib/emoji';
@@ -25,6 +27,8 @@
   let focusStripPrefix = $state(false);
   let alwaysOnTop = $state(false);
   let focusRegexError = $state<string | null>(null);
+  let weeklyExcludedIds = $state<Set<string>>(new Set());
+  let labeledRules = $derived(rules.filter((r) => r.label?.trim()));
 
   let editingRuleId = $state<string | null>(null);
   let editRule = $state<{ image: string; text: string; label: string; patterns: string[] } | null>(
@@ -390,6 +394,14 @@
     goto(lastDay ? `/day/${lastDay}` : '/', { replaceState: true });
   }
 
+  async function toggleWeeklyExclusion(id: string, excluded: boolean) {
+    const next = new Set(weeklyExcludedIds);
+    if (excluded) next.add(id);
+    else next.delete(id);
+    weeklyExcludedIds = next;
+    await setWeeklyExcludedEmojisSetting([...next]);
+  }
+
   $effect(() => {
     getEmojiRules().then((r) => (rules = r));
     getFocusPatternsSetting().then((p) => {
@@ -397,6 +409,7 @@
     });
     getFocusStripPrefixSetting().then((v) => (focusStripPrefix = v));
     getAlwaysOnTopSetting().then((v) => (alwaysOnTop = v));
+    getWeeklyExcludedEmojisSetting().then((ids) => (weeklyExcludedIds = new Set(ids)));
   });
 </script>
 
@@ -860,6 +873,35 @@
       {#if rules.length === 0}
         <p class="text-sm text-gray-500">No emoji rules. Add one above.</p>
       {/if}
+      </section>
+      <section class="space-y-3">
+        <div>
+          <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Weekly summary</h2>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Choose which labeled emojis are excluded from the weekly summary.
+          </p>
+        </div>
+        {#if labeledRules.length === 0}
+          <p class="text-sm text-gray-500">No labeled emoji rules yet.</p>
+        {:else}
+          <ul class="space-y-1">
+            {#each labeledRules as rule (rule.id)}
+              <li>
+                <label class="flex items-center gap-2.5 py-1.5 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!weeklyExcludedIds.has(rule.id)}
+                    onchange={(e) => toggleWeeklyExclusion(rule.id, !(e.currentTarget as HTMLInputElement).checked)}
+                    class="w-4 h-4 shrink-0"
+                  />
+                  <img src={rule.image} alt={rule.text} class="w-5 h-5 object-contain shrink-0" />
+                  <span class="text-sm text-gray-700 dark:text-gray-300">{rule.label}</span>
+                  <span class="text-xs text-gray-400 dark:text-gray-500">:{rule.text}:</span>
+                </label>
+              </li>
+            {/each}
+          </ul>
+        {/if}
       </section>
     </div>
     </div>
