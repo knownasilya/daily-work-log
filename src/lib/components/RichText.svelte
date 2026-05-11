@@ -70,10 +70,21 @@
   /**
    * Walk the rendered div's DOM and count plain-text characters up to targetNode/targetOffset.
    * Text nodes contribute their length; <br> contributes 1 (\n); elements recurse.
+   * Elements with `data-source-length` (rendered links) are opaque — they contribute
+   * that length and aren't descended into, since their display text may be shorter
+   * than the original source span (e.g. `[name](url)` displays just `name`).
    * For element targets, targetOffset is a child index.
    */
   function getPlainTextOffset(root: HTMLElement, targetNode: Node, targetOffset: number): number {
     let count = 0;
+
+    function sourceLen(node: Node): number | null {
+      if (node instanceof HTMLElement && node.dataset.sourceLength) {
+        const n = Number(node.dataset.sourceLength);
+        return Number.isFinite(n) ? n : null;
+      }
+      return null;
+    }
 
     function countFull(node: Node) {
       if (node.nodeType === Node.TEXT_NODE) {
@@ -81,6 +92,11 @@
       } else if ((node as Element).tagName === 'BR') {
         count += 1;
       } else {
+        const sl = sourceLen(node);
+        if (sl !== null) {
+          count += sl;
+          return;
+        }
         for (const child of node.childNodes) countFull(child);
       }
     }
@@ -101,6 +117,11 @@
       }
       if ((node as Element).tagName === 'BR') {
         count += 1;
+        return false;
+      }
+      const sl = sourceLen(node);
+      if (sl !== null) {
+        count += sl;
         return false;
       }
       for (const child of node.childNodes) {
