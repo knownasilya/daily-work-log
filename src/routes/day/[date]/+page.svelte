@@ -30,6 +30,8 @@
   import NavDrawer from '$lib/components/NavDrawer.svelte';
   import RichText from '$lib/components/RichText.svelte';
   import EmojiPicker from '$lib/components/EmojiPicker.svelte';
+  import MentionPicker, { type MentionPickerPlacement } from '$lib/components/MentionPicker.svelte';
+  import { detectMentionTrigger, insertMention, syncMentionsFromText } from '$lib/mention';
 
   let { data } = $props();
 
@@ -120,14 +122,118 @@
   let focusEntries = $derived(data.focusEntries);
   let upcomingEntries = $derived(data.upcomingEntries);
   let emojiRules = $derived(data.emojiRules);
+  let mentions = $derived(data.mentions);
+
+  type InputKind = 'task' | 'focus' | 'upcoming';
+  let mentionInputState = $state<{
+    kind: InputKind;
+    el: HTMLInputElement;
+    startIndex: number;
+    query: string;
+    selectedIndex: number;
+    placement: MentionPickerPlacement;
+  } | null>(null);
+
+  const filteredMentionsForInput = $derived.by(() => {
+    if (!mentionInputState) return [];
+    const q = mentionInputState.query.toLowerCase();
+    if (!q) return mentions;
+    return mentions.filter((u) => u.toLowerCase().includes(q));
+  });
+
+  function computeMentionInputPlacement(el: HTMLElement): MentionPickerPlacement {
+    const rect = el.getBoundingClientRect();
+    const estH = 200;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    if (spaceBelow >= estH || spaceBelow >= rect.top) {
+      return { kind: 'below', left: rect.left, top: rect.bottom + 4 };
+    }
+    return { kind: 'above', left: rect.left, bottom: window.innerHeight - rect.top + 4 };
+  }
+
+  function refreshMentionInputState(kind: InputKind, el: HTMLInputElement) {
+    const caret = el.selectionStart ?? 0;
+    const trigger = detectMentionTrigger(el.value, caret);
+    if (!trigger) {
+      mentionInputState = null;
+      return;
+    }
+    const prev = mentionInputState;
+    mentionInputState = {
+      kind,
+      el,
+      startIndex: trigger.startIndex,
+      query: trigger.query,
+      selectedIndex:
+        prev && prev.kind === kind && prev.startIndex === trigger.startIndex ? prev.selectedIndex : 0,
+      placement: computeMentionInputPlacement(el),
+    };
+  }
+
+  function applyMentionToInput(username: string) {
+    if (!mentionInputState) return;
+    const { el, startIndex, kind } = mentionInputState;
+    const caret = el.selectionStart ?? el.value.length;
+    const result = insertMention(el.value, startIndex, caret, username);
+    if (kind === 'task') newTask = result.value;
+    else if (kind === 'focus') newFocus = result.value;
+    else newUpcoming = result.value;
+    mentionInputState = null;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(result.caret, result.caret);
+    });
+  }
+
+  function handleMentionAwareKeydown(kind: InputKind, e: KeyboardEvent): boolean {
+    if (!mentionInputState || mentionInputState.kind !== kind) return false;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const len = filteredMentionsForInput.length || 1;
+      mentionInputState = {
+        ...mentionInputState,
+        selectedIndex: (mentionInputState.selectedIndex + 1) % len,
+      };
+      return true;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const len = filteredMentionsForInput.length || 1;
+      mentionInputState = {
+        ...mentionInputState,
+        selectedIndex: (mentionInputState.selectedIndex - 1 + len) % len,
+      };
+      return true;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      mentionInputState = null;
+      return true;
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      const username =
+        filteredMentionsForInput.length > 0
+          ? filteredMentionsForInput[mentionInputState.selectedIndex]
+          : mentionInputState.query.trim();
+      if (username) {
+        e.preventDefault();
+        applyMentionToInput(username);
+        return true;
+      }
+      mentionInputState = null;
+    }
+    return false;
+  }
 
   $effect(() => {
     noteText = data.dayRow?.note ?? '';
   });
 
-  function saveNote(value: string) {
+  async function saveNote(value: string) {
     const trimmed = value.trim();
-    updateDayNote(data.date, trimmed ? trimmed : null).then(() => invalidateAll());
+    await updateDayNote(data.date, trimmed ? trimmed : null);
+    if (trimmed) await syncMentionsFromText(trimmed);
+    await invalidateAll();
   }
 
   function listItemsFor(kind: ListKind) {
@@ -316,22 +422,25 @@
     emojiDropdownOpen = null;
   }
 
-  function handleAddTask() {
+  async function handleAddTask() {
     const content = newTask.trim();
     if (!content) return;
     const emojiId = tryAutoAssignEmoji(content, emojiRules);
-    addTask(data.date, content, emojiId).then(() => {
-      invalidateAll();
-      newTask = '';
-    });
+    await addTask(data.date, content, emojiId);
+    await syncMentionsFromText(content);
+    newTask = '';
+    await invalidateAll();
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (handleMentionAwareKeydown('task', e)) return;
     if (e.key === 'Enter') handleAddTask();
   }
 
-  function handleUpdateContent(id: number, content: string) {
-    updateTask(id, { content }).then(() => invalidateAll());
+  async function handleUpdateContent(id: number, content: string) {
+    await updateTask(id, { content });
+    if (content.trim()) await syncMentionsFromText(content);
+    await invalidateAll();
   }
 
   function handleDelete(id: number) {
@@ -344,34 +453,38 @@
     updateTask(id, { pinned }).then(() => invalidateAll());
   }
 
-  function handleAddFocus() {
+  async function handleAddFocus() {
     const content = newFocus.trim();
     if (!content) return;
-    addDayEntry(data.date, 'focus', content).then(() => {
-      invalidateAll();
-      newFocus = '';
-    });
+    await addDayEntry(data.date, 'focus', content);
+    await syncMentionsFromText(content);
+    newFocus = '';
+    await invalidateAll();
   }
 
   function handleFocusKeydown(e: KeyboardEvent) {
+    if (handleMentionAwareKeydown('focus', e)) return;
     if (e.key === 'Enter') handleAddFocus();
   }
 
-  function handleAddUpcoming() {
+  async function handleAddUpcoming() {
     const content = newUpcoming.trim();
     if (!content) return;
-    addDayEntry(data.date, 'upcoming', content).then(() => {
-      invalidateAll();
-      newUpcoming = '';
-    });
+    await addDayEntry(data.date, 'upcoming', content);
+    await syncMentionsFromText(content);
+    newUpcoming = '';
+    await invalidateAll();
   }
 
   function handleUpcomingKeydown(e: KeyboardEvent) {
+    if (handleMentionAwareKeydown('upcoming', e)) return;
     if (e.key === 'Enter') handleAddUpcoming();
   }
 
-  function handleUpdateDayEntry(id: number, content: string) {
-    updateDayEntryContent(id, content).then(() => invalidateAll());
+  async function handleUpdateDayEntry(id: number, content: string) {
+    await updateDayEntryContent(id, content);
+    if (content.trim()) await syncMentionsFromText(content);
+    await invalidateAll();
   }
 
   function handleDeleteFocusEntry(id: number) {
@@ -648,6 +761,7 @@
               saveOn="enter"
               onEmptyBackspace={() => handleDeleteFocusEntry(entry.id)}
               wrapperClass="flex-1 min-w-0"
+              {mentions}
               class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words pr-8"
             />
             <div class="absolute right-0 top-0 flex items-center gap-0.5">
@@ -701,6 +815,10 @@
           type="text"
           bind:value={newFocus}
           onkeydown={handleFocusKeydown}
+          oninput={(e) => refreshMentionInputState('focus', e.currentTarget as HTMLInputElement)}
+          onkeyup={(e) => refreshMentionInputState('focus', e.currentTarget as HTMLInputElement)}
+          onclick={(e) => refreshMentionInputState('focus', e.currentTarget as HTMLInputElement)}
+          onblur={() => { if (mentionInputState?.kind === 'focus') mentionInputState = null; }}
           placeholder="Add focus..."
           class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
         />
@@ -784,6 +902,7 @@
             saveOn="enter"
             onEmptyBackspace={() => handleDelete(task.id)}
             wrapperClass="flex-1 min-w-0"
+            {mentions}
             class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words {task.pinned ? 'pr-14' : 'pr-8'}"
           />
           <div class="absolute right-0 top-0 flex items-center gap-0.5">
@@ -874,6 +993,10 @@
           type="text"
           bind:value={newTask}
           onkeydown={handleKeydown}
+          oninput={(e) => refreshMentionInputState('task', e.currentTarget as HTMLInputElement)}
+          onkeyup={(e) => refreshMentionInputState('task', e.currentTarget as HTMLInputElement)}
+          onclick={(e) => refreshMentionInputState('task', e.currentTarget as HTMLInputElement)}
+          onblur={() => { if (mentionInputState?.kind === 'task') mentionInputState = null; }}
           placeholder="Add task..."
           class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
         />
@@ -954,6 +1077,7 @@
               saveOn="enter"
               onEmptyBackspace={() => handleDeleteUpcomingEntry(entry.id)}
               wrapperClass="flex-1 min-w-0"
+              {mentions}
               class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words pr-8"
             />
             <div class="absolute right-0 top-0 flex items-center gap-0.5">
@@ -1007,6 +1131,10 @@
           type="text"
           bind:value={newUpcoming}
           onkeydown={handleUpcomingKeydown}
+          oninput={(e) => refreshMentionInputState('upcoming', e.currentTarget as HTMLInputElement)}
+          onkeyup={(e) => refreshMentionInputState('upcoming', e.currentTarget as HTMLInputElement)}
+          onclick={(e) => refreshMentionInputState('upcoming', e.currentTarget as HTMLInputElement)}
+          onblur={() => { if (mentionInputState?.kind === 'upcoming') mentionInputState = null; }}
           placeholder="Add upcoming..."
           class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
         />
@@ -1031,6 +1159,7 @@
         resync={true}
         resyncKey={JSON.stringify([data.date, data.dayRow?.note ?? ''])}
         wrapperClass="w-full"
+        {mentions}
         class="text-sm px-2 py-2 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none"
       />
     </div>
@@ -1099,3 +1228,13 @@
 {/if}
 
 <NavDrawer open={drawerOpen} onclose={closeDrawer} />
+
+{#if mentionInputState}
+  <MentionPicker
+    usernames={filteredMentionsForInput}
+    query={mentionInputState.query}
+    selectedIndex={mentionInputState.selectedIndex}
+    placement={mentionInputState.placement}
+    onSelect={applyMentionToInput}
+  />
+{/if}

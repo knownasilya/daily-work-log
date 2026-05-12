@@ -500,6 +500,39 @@ export async function setWeeklyExcludedEmojisSetting(ids: string[]): Promise<voi
   await setAppSetting('weekly_excluded_emojis', JSON.stringify(ids));
 }
 
+export async function getMentions(): Promise<string[]> {
+  const raw = await getAppSetting('mentions');
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setMentions(usernames: string[]): Promise<void> {
+  await setAppSetting('mentions', JSON.stringify(usernames));
+}
+
+/** Adds any usernames not already present (case-insensitive match). Returns true if list changed. */
+export async function addMentionsIfMissing(usernames: string[]): Promise<boolean> {
+  const current = await getMentions();
+  const lower = new Set(current.map((u) => u.toLowerCase()));
+  const toAdd: string[] = [];
+  for (const u of usernames) {
+    const trimmed = u.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (lower.has(key)) continue;
+    lower.add(key);
+    toAdd.push(trimmed);
+  }
+  if (toAdd.length === 0) return false;
+  await setMentions([...current, ...toAdd]);
+  return true;
+}
+
 export async function getWeekTotals(): Promise<WeekTotal[]> {
   const db = await getDb();
   const rows = await db.select<Record<string, unknown>[]>(

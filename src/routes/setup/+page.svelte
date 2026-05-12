@@ -14,6 +14,9 @@
     setWeeklyExcludedEmojisSetting,
     getUpcomingDefaultEmojiSetting,
     setUpcomingDefaultEmojiSetting,
+    getMentions,
+    setMentions,
+    addMentionsIfMissing,
   } from '$lib/api/db';
   import { applyAlwaysOnTop } from '$lib/tauri-window';
   import { parsePatterns, validatePattern as checkPatternSyntax } from '$lib/emoji';
@@ -27,6 +30,11 @@
   let upcomingDefaultEmojiId = $state<string | null>(null);
   let weeklyExcludedIds = $state<Set<string>>(new Set());
   let labeledRules = $derived(rules.filter((r) => r.label?.trim()));
+  let mentions = $state<string[]>([]);
+  let newMention = $state('');
+  let sortedMentions = $derived(
+    [...mentions].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+  );
 
   let editingRuleId = $state<string | null>(null);
   let editRule = $state<{ image: string; text: string; label: string; patterns: string[] } | null>(
@@ -377,11 +385,34 @@
     await setWeeklyExcludedEmojisSetting([...next]);
   }
 
+  async function addMention() {
+    const v = newMention.trim().replace(/^@/, '');
+    if (!v) return;
+    if (!/^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$/.test(v)) return;
+    await addMentionsIfMissing([v]);
+    mentions = await getMentions();
+    newMention = '';
+  }
+
+  async function removeMention(name: string) {
+    const next = mentions.filter((m) => m !== name);
+    mentions = next;
+    await setMentions(next);
+  }
+
+  function handleNewMentionKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addMention();
+    }
+  }
+
   $effect(() => {
     getEmojiRules().then((r) => (rules = r));
     getAlwaysOnTopSetting().then((v) => (alwaysOnTop = v));
     getUpcomingDefaultEmojiSetting().then((id) => (upcomingDefaultEmojiId = id));
     getWeeklyExcludedEmojisSetting().then((ids) => (weeklyExcludedIds = new Set(ids)));
+    getMentions().then((m) => (mentions = m));
   });
 </script>
 
@@ -822,6 +853,55 @@
                   <span class="text-sm text-gray-700 dark:text-gray-300">{rule.label}</span>
                   <span class="text-xs text-gray-400 dark:text-gray-500">:{rule.text}:</span>
                 </label>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
+      <section class="space-y-3">
+        <div>
+          <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Mentions</h2>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Type <span class="font-medium">@</span> in any focus, log, upcoming, or note field to insert a mention. New names are added here automatically when you save.
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <input
+            type="text"
+            bind:value={newMention}
+            onkeydown={handleNewMentionKeydown}
+            placeholder="Add mention (e.g. josh)"
+            autocorrect="off"
+            autocomplete="off"
+            spellcheck="false"
+            class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+          />
+          <button
+            type="button"
+            onclick={addMention}
+            disabled={!newMention.trim()}
+            class="text-sm px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Add
+          </button>
+        </div>
+        {#if sortedMentions.length === 0}
+          <p class="text-sm text-gray-500">No mentions yet.</p>
+        {:else}
+          <ul class="space-y-1">
+            {#each sortedMentions as name (name)}
+              <li class="flex items-center gap-2 py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800">
+                <span class="flex-1 text-sm text-blue-600 dark:text-blue-400 font-medium">@{name}</span>
+                <button
+                  type="button"
+                  onclick={() => removeMention(name)}
+                  class="p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded shrink-0"
+                  aria-label={`Remove @${name}`}
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </li>
             {/each}
           </ul>
