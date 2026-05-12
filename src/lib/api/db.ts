@@ -1,5 +1,4 @@
 import Database from '@tauri-apps/plugin-sql';
-import { parsePatterns, patternMatches } from '$lib/emoji';
 
 const DB_PATH = 'sqlite:daily-work-log.db';
 
@@ -37,9 +36,17 @@ export interface EmojiRule {
 export interface Day {
   id: string;
   day: string;
-  focus: string | null;
   note: string | null;
   created_at: string;
+}
+
+export interface DayEntry {
+  id: number;
+  date: string;
+  kind: 'focus' | 'upcoming';
+  content: string;
+  emoji_id: string | null;
+  sort_order: number;
 }
 
 type AppSettingRow = { key: string; value: string };
@@ -59,47 +66,24 @@ export async function setAppSetting(key: string, value: string): Promise<void> {
   await db.execute('INSERT OR REPLACE INTO app_settings (key, value) VALUES ($1, $2)', [key, value]);
 }
 
-export async function getFocusPatternsSetting(): Promise<string[]> {
-  const raw = await getAppSetting('focus_patterns');
-  if (!raw) return [];
-  const patterns = parsePatterns(raw);
-  return patterns.map((p) => p.trim()).filter(Boolean);
-}
-
-export async function getFocusStripPrefixSetting(): Promise<boolean> {
-  const raw = await getAppSetting('focus_strip_prefix');
-  if (!raw) return false;
-  return raw === '1' || raw.toLowerCase() === 'true';
-}
-
 export async function getAlwaysOnTopSetting(): Promise<boolean> {
   const raw = await getAppSetting('always_on_top');
   if (!raw) return false;
   return raw === '1' || raw.toLowerCase() === 'true';
 }
 
-function stripPatternPrefix(content: string, pattern: string): string {
-  const trimmedPattern = pattern.trim();
-  if (!trimmedPattern) return content;
+export async function getUpcomingDefaultEmojiSetting(): Promise<string | null> {
+  const raw = await getAppSetting('upcoming_default_emoji_id');
+  return raw && raw.trim() ? raw : null;
+}
 
-  const regexMatch = /^\/(.*)\/$/.exec(trimmedPattern);
-  if (regexMatch) {
-    try {
-      const re = new RegExp(`^(?:${regexMatch[1]})`);
-      const m = re.exec(content);
-      if (m && m[0]) {
-        return content.slice(m[0].length).trimStart();
-      }
-      return content;
-    } catch {
-      return content;
-    }
+export async function setUpcomingDefaultEmojiSetting(emojiId: string | null): Promise<void> {
+  if (emojiId == null) {
+    const db = await getDb();
+    await db.execute('DELETE FROM app_settings WHERE key = $1', ['upcoming_default_emoji_id']);
+    return;
   }
-
-  if (content.startsWith(trimmedPattern)) {
-    return content.slice(trimmedPattern.length).trimStart();
-  }
-  return content;
+  await setAppSetting('upcoming_default_emoji_id', emojiId);
 }
 
 /** Latest `days.day` strictly before `day` (YYYY-MM-DD string order), or null. */
@@ -145,37 +129,14 @@ export async function ensureDay(day: string): Promise<Day> {
   }
 
   try {
-    const patterns = await getFocusPatternsSetting();
-    if (patterns.length > 0 && previousDay) {
-      const [stripPrefix, entries] = await Promise.all([
-        getFocusStripPrefixSetting(),
-        getTasksForDate(previousDay),
-      ]);
-      const match = entries.find((e) => patterns.some((p) => patternMatches(e.content, p)));
-      if (match) {
-        const matchedPattern = patterns.find((p) => patternMatches(match.content, p)) ?? null;
-        let focus = match.content;
-        if (stripPrefix && matchedPattern) {
-          focus = stripPatternPrefix(focus, matchedPattern);
-        }
-        const trimmed = focus.trim();
-        if (trimmed) {
-          await updateDayFocus(day, trimmed);
-          const updated = await db.select<Day[]>('SELECT * FROM days WHERE day = $1 LIMIT 1', [day]);
-          if (Array.isArray(updated) && updated.length > 0) return updated[0];
-        }
-      }
+    if (previousDay) {
+      await seedFocusForNewDay(previousDay, day);
     }
   } catch {
-    // ignore: settings/focus seeding is best-effort
+    // ignore: carry-forward is best-effort
   }
 
   return dayRow;
-}
-
-export async function updateDayFocus(day: string, focus: string | null): Promise<void> {
-  const db = await getDb();
-  await db.execute('UPDATE days SET focus = $1 WHERE day = $2', [focus, day]);
 }
 
 export async function updateDayNote(day: string, note: string | null): Promise<void> {
@@ -211,6 +172,38 @@ async function copyPinnedEntriesToNewDay(sourceDate: string, targetDate: string)
       [targetDate, e.content, e.emoji_id, sortOrder]
     );
     sortOrder += 1;
+  }
+}
+
+/**
+ * Seeds the new day's focus list with:
+ * 1. remaining (uncompleted) focus entries from the source day, at the top
+ * 2. upcoming entries from the source day, after the carried-over focus
+ */
+async function seedFocusForNewDay(sourceDate: string, targetDate: string): Promise<void> {
+  const db = await getDb();
+  const focusRows = await db.select<Record<string, unknown>[]>(
+    "SELECT content FROM day_entries WHERE date = $1 AND kind = 'focus' ORDER BY sort_order, id",
+    [sourceDate]
+  );
+  const focus = Array.isArray(focusRows) ? focusRows : [];
+  for (let i = 0; i < focus.length; i++) {
+    await db.execute(
+      "INSERT INTO day_entries (date, kind, content, sort_order) VALUES ($1, 'focus', $2, $3)",
+      [targetDate, String(focus[i].content), i]
+    );
+  }
+
+  const upcomingRows = await db.select<Record<string, unknown>[]>(
+    "SELECT content FROM day_entries WHERE date = $1 AND kind = 'upcoming' ORDER BY sort_order, id",
+    [sourceDate]
+  );
+  const upcoming = Array.isArray(upcomingRows) ? upcomingRows : [];
+  for (let i = 0; i < upcoming.length; i++) {
+    await db.execute(
+      "INSERT INTO day_entries (date, kind, content, sort_order) VALUES ($1, 'focus', $2, $3)",
+      [targetDate, String(upcoming[i].content), focus.length + i]
+    );
   }
 }
 
@@ -275,10 +268,109 @@ export async function deleteTask(id: number): Promise<void> {
   await db.execute('DELETE FROM work_log_entries WHERE id = $1', [id]);
 }
 
-/** Removes the day row and all work log entries for that calendar date. */
+function mapDayEntryRow(r: Record<string, unknown>): DayEntry {
+  return {
+    id: Number(r.id),
+    date: String(r.date),
+    kind: r.kind === 'upcoming' ? 'upcoming' : 'focus',
+    content: String(r.content),
+    emoji_id: r.emoji_id != null ? String(r.emoji_id) : null,
+    sort_order: Number(r.sort_order),
+  };
+}
+
+export async function getDayEntries(
+  date: string
+): Promise<{ focus: DayEntry[]; upcoming: DayEntry[] }> {
+  const db = await getDb();
+  const rows = await db.select<Record<string, unknown>[]>(
+    'SELECT * FROM day_entries WHERE date = $1 ORDER BY kind, sort_order, id',
+    [date]
+  );
+  const all = Array.isArray(rows) ? rows.map(mapDayEntryRow) : [];
+  return {
+    focus: all.filter((e) => e.kind === 'focus'),
+    upcoming: all.filter((e) => e.kind === 'upcoming'),
+  };
+}
+
+export async function addDayEntry(
+  date: string,
+  kind: 'focus' | 'upcoming',
+  content: string,
+  emojiId?: string | null
+): Promise<number> {
+  await ensureDay(date);
+  const db = await getDb();
+  const countResult = await db.select<[{ count: number }]>(
+    'SELECT COUNT(*) as count FROM day_entries WHERE date = $1 AND kind = $2',
+    [date, kind]
+  );
+  const count = Array.isArray(countResult) ? countResult[0]?.count ?? 0 : 0;
+  const sortOrder = typeof count === 'number' ? count : 0;
+
+  let resolvedEmoji: string | null = null;
+  if (kind === 'upcoming') {
+    resolvedEmoji = emojiId !== undefined ? emojiId : await getUpcomingDefaultEmojiSetting();
+  }
+
+  const result = await db.execute(
+    'INSERT INTO day_entries (date, kind, content, emoji_id, sort_order) VALUES ($1, $2, $3, $4, $5)',
+    [date, kind, content, resolvedEmoji, sortOrder]
+  );
+  return result.lastInsertId ?? 0;
+}
+
+export async function updateDayEntryContent(id: number, content: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE day_entries SET content = $1 WHERE id = $2', [content, id]);
+}
+
+export async function updateDayEntryEmoji(id: number, emojiId: string | null): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE day_entries SET emoji_id = $1 WHERE id = $2 AND kind = 'upcoming'",
+    [emojiId, id]
+  );
+}
+
+export async function deleteDayEntry(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM day_entries WHERE id = $1', [id]);
+}
+
+export async function reorderDayEntries(
+  date: string,
+  kind: 'focus' | 'upcoming',
+  orderedIds: number[]
+): Promise<void> {
+  const db = await getDb();
+  for (let i = 0; i < orderedIds.length; i++) {
+    await db.execute(
+      'UPDATE day_entries SET sort_order = $1 WHERE id = $2 AND date = $3 AND kind = $4',
+      [i, orderedIds[i], date, kind]
+    );
+  }
+}
+
+/** Insert a task for the focus entry's date, then delete the focus entry. */
+export async function completeFocusEntry(entryId: number, emojiId: string | null): Promise<void> {
+  const db = await getDb();
+  const rows = await db.select<Record<string, unknown>[]>(
+    'SELECT * FROM day_entries WHERE id = $1 AND kind = $2 LIMIT 1',
+    [entryId, 'focus']
+  );
+  if (!Array.isArray(rows) || rows.length === 0) return;
+  const entry = mapDayEntryRow(rows[0]);
+  await addTask(entry.date, entry.content, emojiId);
+  await deleteDayEntry(entryId);
+}
+
+/** Removes the day row, all work log entries, and all focus/upcoming entries for that calendar date. */
 export async function deleteDay(day: string): Promise<void> {
   const db = await getDb();
   await db.execute('DELETE FROM work_log_entries WHERE date = $1', [day]);
+  await db.execute('DELETE FROM day_entries WHERE date = $1', [day]);
   await db.execute('DELETE FROM days WHERE day = $1', [day]);
 }
 
@@ -307,7 +399,7 @@ export type DayWithTaskCount = Day & { task_count: number };
 export async function getDays(): Promise<DayWithTaskCount[]> {
   const db = await getDb();
   const rows = await db.select<DayWithTaskCount[]>(
-    `SELECT d.id, d.day, d.focus, d.note, d.created_at,
+    `SELECT d.id, d.day, d.note, d.created_at,
        (SELECT COUNT(*) FROM work_log_entries w WHERE w.date = d.day) AS task_count
      FROM days d
      ORDER BY d.day DESC`
@@ -315,21 +407,24 @@ export async function getDays(): Promise<DayWithTaskCount[]> {
   return Array.isArray(rows) ? rows : [];
 }
 
-/** Days whose focus, note, or any log entry content contains `query` (case-insensitive). */
+/** Days whose note, any focus/upcoming entry, or any log entry content contains `query` (case-insensitive). */
 export async function searchDaysByText(query: string): Promise<DayWithTaskCount[]> {
   const t = query.trim().toLowerCase();
   if (!t) return getDays();
 
   const db = await getDb();
   const rows = await db.select<DayWithTaskCount[]>(
-    `SELECT d.id, d.day, d.focus, d.note, d.created_at,
+    `SELECT d.id, d.day, d.note, d.created_at,
        (SELECT COUNT(*) FROM work_log_entries w WHERE w.date = d.day) AS task_count
      FROM days d
-     WHERE instr(lower(coalesce(d.focus, '')), $1) > 0
-        OR instr(lower(coalesce(d.note, '')), $1) > 0
+     WHERE instr(lower(coalesce(d.note, '')), $1) > 0
         OR EXISTS (
           SELECT 1 FROM work_log_entries w
           WHERE w.date = d.day AND instr(lower(w.content), $1) > 0
+        )
+        OR EXISTS (
+          SELECT 1 FROM day_entries de
+          WHERE de.date = d.day AND instr(lower(de.content), $1) > 0
         )
      ORDER BY d.day DESC`,
     [t]

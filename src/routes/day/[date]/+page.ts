@@ -1,5 +1,13 @@
 import { redirect } from '@sveltejs/kit';
-import { ensureDay, getTasksForDate, getEmojiRules, getLastDay, getLatestDayBefore, getEarliestDayAfter } from '$lib/api/db';
+import {
+  ensureDay,
+  getTasksForDate,
+  getEmojiRules,
+  getLastDay,
+  getLatestDayBefore,
+  getEarliestDayAfter,
+  getDayEntries,
+} from '$lib/api/db';
 import { toYYYYMMDD, isValidDateStr } from '$lib/utils';
 
 export async function load({ params }: { params: { date: string } }) {
@@ -8,11 +16,12 @@ export async function load({ params }: { params: { date: string } }) {
     redirect(302, `/day/${toYYYYMMDD(new Date())}`);
   }
 
-  // ensureDay must finish before getTasksForDate: new days copy pinned entries inside ensureDay,
-  // and parallel getTasksForDate would often resolve first with an empty list.
+  // ensureDay must finish before sibling queries: new days carry pinned tasks and upcoming->focus
+  // entries inside ensureDay, and parallel reads would often resolve first with empty lists.
   const dayRow = await ensureDay(date);
-  const [tasks, emojiRules, lastDay, prevDay, nextDay] = await Promise.all([
+  const [tasks, dayEntries, emojiRules, lastDay, prevDay, nextDay] = await Promise.all([
     getTasksForDate(date),
+    getDayEntries(date),
     getEmojiRules(),
     getLastDay(),
     getLatestDayBefore(date),
@@ -23,6 +32,8 @@ export async function load({ params }: { params: { date: string } }) {
     date,
     dayRow,
     tasks,
+    focusEntries: dayEntries.focus,
+    upcomingEntries: dayEntries.upcoming,
     emojiRules,
     isToday: date === toYYYYMMDD(new Date()),
     isLatestDay: lastDay !== null && date === lastDay,

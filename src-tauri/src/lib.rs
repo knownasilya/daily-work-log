@@ -61,6 +61,12 @@ pub fn run() {
             sql: include_str!("../migrations/006_work_log_pinned.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 7,
+            description: "day_entries",
+            sql: include_str!("../migrations/007_day_entries.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     let mut builder = tauri::Builder::default();

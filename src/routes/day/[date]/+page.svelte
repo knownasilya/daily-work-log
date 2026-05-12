@@ -15,27 +15,65 @@
     getLastDay,
     getLatestDayBefore,
     reorderTasksForDate,
-    updateDayFocus,
     updateDayNote,
+    addDayEntry,
+    updateDayEntryContent,
+    updateDayEntryEmoji,
+    deleteDayEntry,
+    reorderDayEntries,
+    completeFocusEntry,
+    getUpcomingDefaultEmojiSetting,
   } from '$lib/api/db';
   import { formatDatePretty } from '$lib/utils';
   import { formatLineForSlack, tryAutoAssignEmoji } from '$lib/emoji';
   import { toYYYYMMDD } from '$lib/utils';
   import NavDrawer from '$lib/components/NavDrawer.svelte';
   import RichText from '$lib/components/RichText.svelte';
+  import EmojiPicker from '$lib/components/EmojiPicker.svelte';
 
   let { data } = $props();
 
   let drawerOpen = $state(false);
   let emojiDropdownOpen = $state<number | null>(null);
   let entryMenuOpen = $state<number | null>(null);
+  let focusMenuOpen = $state<number | null>(null);
+  let upcomingMenuOpen = $state<number | null>(null);
   let copiedFeedback = $state(false);
-  let emojiDropdownPos = $state({ top: 0, left: 0 });
+  type EmojiDropdownPlacement =
+    | { kind: 'below'; left: number; top: number }
+    | { kind: 'above'; left: number; bottom: number };
+  let emojiDropdownPos = $state<EmojiDropdownPlacement>({ kind: 'below', left: 0, top: 0 });
+  let upcomingEmojiDropdownOpen = $state<number | null>(null);
+  let upcomingEmojiDropdownPos = $state<EmojiDropdownPlacement>({ kind: 'below', left: 0, top: 0 });
+
+  /** Opens above when there isn't room below; left-anchored either way. */
+  function computeEmojiDropdownPosition(anchor: DOMRect): EmojiDropdownPlacement {
+    const pad = 8;
+    const gap = 4;
+    const estH = 220; // search input + ~5 rows of rules
+    const vh = window.innerHeight;
+    if (anchor.bottom + gap + estH > vh - pad) {
+      return { kind: 'above', left: anchor.left, bottom: vh - anchor.top + gap };
+    }
+    return { kind: 'below', left: anchor.left, top: anchor.bottom + gap };
+  }
   type EntryMenuPlacement =
     | { kind: 'below'; right: number; top: number; maxWidthPx: number }
     | { kind: 'above'; right: number; bottom: number; maxWidthPx: number };
 
   let entryMenuPos = $state<EntryMenuPlacement>({
+    kind: 'below',
+    right: 0,
+    top: 0,
+    maxWidthPx: 280,
+  });
+  let focusMenuPos = $state<EntryMenuPlacement>({
+    kind: 'below',
+    right: 0,
+    top: 0,
+    maxWidthPx: 280,
+  });
+  let upcomingMenuPos = $state<EntryMenuPlacement>({
     kind: 'below',
     right: 0,
     top: 0,
@@ -49,17 +87,20 @@
     maxWidthPx: 280,
   });
   let newTask = $state('');
-  let focusText = $state('');
+  let newFocus = $state('');
+  let newUpcoming = $state('');
   let noteText = $state('');
   /** Pointer-based reorder (HTML5 DnD is unreliable in Tauri WKWebView). */
   const REORDER_THRESHOLD_PX = 8;
-  type PendingPointer = { x: number; y: number; taskId: number; pointerId: number };
+  type ListKind = 'task' | 'focus' | 'upcoming';
+  type PendingPointer = { x: number; y: number; entityId: number; kind: ListKind; pointerId: number };
   let pendingPointer: PendingPointer | null = null;
   let reorderActive = $state(false);
+  let reorderListKind = $state<ListKind | null>(null);
   let reorderSourceId = $state<number | null>(null);
-  /** Insert before this index in `tasks` (0..length); only visual until pointerup. */
+  /** Insert before this index in the active list (0..length); only visual until pointerup. */
   let reorderInsertSlot = $state<number | null>(null);
-  let ignoreEmojiClick = false;
+  let ignoreClickAfterDrag = false;
 
   $effect(() => {
     if (reorderActive) {
@@ -76,23 +117,23 @@
 
 
   let tasks = $derived(data.tasks);
+  let focusEntries = $derived(data.focusEntries);
+  let upcomingEntries = $derived(data.upcomingEntries);
   let emojiRules = $derived(data.emojiRules);
-  $effect(() => {
-    focusText = data.dayRow?.focus ?? '';
-  });
 
   $effect(() => {
     noteText = data.dayRow?.note ?? '';
   });
 
-  function saveFocus(value: string) {
-    const trimmed = value.trim();
-    updateDayFocus(data.date, trimmed ? trimmed : null).then(() => invalidateAll());
-  }
-
   function saveNote(value: string) {
     const trimmed = value.trim();
     updateDayNote(data.date, trimmed ? trimmed : null).then(() => invalidateAll());
+  }
+
+  function listItemsFor(kind: ListKind) {
+    if (kind === 'task') return tasks;
+    if (kind === 'focus') return focusEntries;
+    return upcomingEntries;
   }
 
   function sameIdOrder(a: number[], b: number[]) {
@@ -112,12 +153,13 @@
     return next;
   }
 
-  function pointerEventToInsertSlot(e: PointerEvent): number | null {
+  function pointerEventToInsertSlot(e: PointerEvent, kind: ListKind): number | null {
     const hit = document.elementFromPoint(e.clientX, e.clientY);
-    const row = hit?.closest('[data-task-row]') as HTMLElement | null;
+    const row = hit?.closest(`[data-row-list="${kind}"]`) as HTMLElement | null;
     if (!row) return null;
-    const id = Number(row.dataset.taskId);
-    const idx = tasks.findIndex((t) => t.id === id);
+    const id = Number(row.dataset.rowId);
+    const items = listItemsFor(kind);
+    const idx = items.findIndex((t) => t.id === id);
     if (idx < 0) return null;
     const rect = row.getBoundingClientRect();
     const before = e.clientY < rect.top + rect.height / 2;
@@ -131,7 +173,7 @@
       dayHeaderMenuOpen = false;
       entryMenuOpen = null;
       const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
-      emojiDropdownPos = { top: rect.bottom + 4, left: rect.left };
+      emojiDropdownPos = computeEmojiDropdownPosition(rect);
       emojiDropdownOpen = taskId;
     }
   }
@@ -172,8 +214,8 @@
   }
 
   function onEmojiActivatorClick(taskId: number, ev: MouseEvent) {
-    if (ignoreEmojiClick) {
-      ignoreEmojiClick = false;
+    if (ignoreClickAfterDrag) {
+      ignoreClickAfterDrag = false;
       ev.preventDefault();
       ev.stopPropagation();
       return;
@@ -184,13 +226,14 @@
   function resetReorderState() {
     pendingPointer = null;
     reorderActive = false;
+    reorderListKind = null;
     reorderSourceId = null;
     reorderInsertSlot = null;
   }
 
-  function handleReorderPointerDown(taskId: number, e: PointerEvent) {
+  function handleReorderPointerDown(entityId: number, kind: ListKind, e: PointerEvent) {
     if (e.button !== 0) return;
-    pendingPointer = { x: e.clientX, y: e.clientY, taskId, pointerId: e.pointerId };
+    pendingPointer = { x: e.clientX, y: e.clientY, entityId, kind, pointerId: e.pointerId };
   }
 
   function handleReorderPointerMove(el: HTMLElement, e: PointerEvent) {
@@ -201,7 +244,8 @@
       const dy = e.clientY - pendingPointer.y;
       if (Math.hypot(dx, dy) < REORDER_THRESHOLD_PX) return;
       reorderActive = true;
-      reorderSourceId = pendingPointer.taskId;
+      reorderListKind = pendingPointer.kind;
+      reorderSourceId = pendingPointer.entityId;
       reorderInsertSlot = null;
       el.setPointerCapture(e.pointerId);
     }
@@ -211,10 +255,11 @@
     e.preventDefault();
     getSelection()?.removeAllRanges();
     const src = reorderSourceId;
-    if (src == null) return;
-    const rawSlot = pointerEventToInsertSlot(e);
+    const kind = reorderListKind;
+    if (src == null || kind == null) return;
+    const rawSlot = pointerEventToInsertSlot(e, kind);
     if (rawSlot == null) return;
-    const ids = tasks.map((t) => t.id);
+    const ids = listItemsFor(kind).map((t) => t.id);
     const next = orderIdsWithInsert(ids, src, rawSlot);
     if (sameIdOrder(ids, next)) {
       reorderInsertSlot = null;
@@ -229,12 +274,17 @@
     if (reorderActive) {
       const src = reorderSourceId;
       const slot = reorderInsertSlot;
-      if (src != null && slot != null) {
-        const ids = tasks.map((t) => t.id);
+      const kind = reorderListKind;
+      if (src != null && slot != null && kind != null) {
+        const ids = listItemsFor(kind).map((t) => t.id);
         const next = orderIdsWithInsert(ids, src, slot);
         if (!sameIdOrder(ids, next)) {
-          reorderTasksForDate(data.date, next).then(() => invalidateAll());
-          ignoreEmojiClick = true;
+          const persist =
+            kind === 'task'
+              ? reorderTasksForDate(data.date, next)
+              : reorderDayEntries(data.date, kind, next);
+          persist.then(() => invalidateAll());
+          ignoreClickAfterDrag = true;
         }
       }
       try {
@@ -294,6 +344,119 @@
     updateTask(id, { pinned }).then(() => invalidateAll());
   }
 
+  function handleAddFocus() {
+    const content = newFocus.trim();
+    if (!content) return;
+    addDayEntry(data.date, 'focus', content).then(() => {
+      invalidateAll();
+      newFocus = '';
+    });
+  }
+
+  function handleFocusKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') handleAddFocus();
+  }
+
+  function handleAddUpcoming() {
+    const content = newUpcoming.trim();
+    if (!content) return;
+    addDayEntry(data.date, 'upcoming', content).then(() => {
+      invalidateAll();
+      newUpcoming = '';
+    });
+  }
+
+  function handleUpcomingKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') handleAddUpcoming();
+  }
+
+  function handleUpdateDayEntry(id: number, content: string) {
+    updateDayEntryContent(id, content).then(() => invalidateAll());
+  }
+
+  function handleDeleteFocusEntry(id: number) {
+    focusMenuOpen = null;
+    deleteDayEntry(id).then(() => invalidateAll());
+  }
+
+  function handleDeleteUpcomingEntry(id: number) {
+    upcomingMenuOpen = null;
+    deleteDayEntry(id).then(() => invalidateAll());
+  }
+
+  function handleCompleteFocus(id: number, content: string) {
+    const emojiId = tryAutoAssignEmoji(content, emojiRules);
+    completeFocusEntry(id, emojiId).then(() => invalidateAll());
+  }
+
+  function onFocusCheckboxClick(id: number, content: string, ev: MouseEvent) {
+    if (ignoreClickAfterDrag) {
+      ignoreClickAfterDrag = false;
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
+    handleCompleteFocus(id, content);
+  }
+
+  function toggleUpcomingEmojiDropdown(entryId: number, ev: MouseEvent) {
+    if (upcomingEmojiDropdownOpen === entryId) {
+      upcomingEmojiDropdownOpen = null;
+    } else {
+      dayHeaderMenuOpen = false;
+      emojiDropdownOpen = null;
+      entryMenuOpen = null;
+      focusMenuOpen = null;
+      upcomingMenuOpen = null;
+      const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+      upcomingEmojiDropdownPos = computeEmojiDropdownPosition(rect);
+      upcomingEmojiDropdownOpen = entryId;
+    }
+  }
+
+  function onUpcomingEmojiActivatorClick(entryId: number, ev: MouseEvent) {
+    if (ignoreClickAfterDrag) {
+      ignoreClickAfterDrag = false;
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
+    toggleUpcomingEmojiDropdown(entryId, ev);
+  }
+
+  function selectUpcomingEmoji(entryId: number, emojiId: string | null) {
+    updateDayEntryEmoji(entryId, emojiId).then(() => invalidateAll());
+    upcomingEmojiDropdownOpen = null;
+  }
+
+  function toggleFocusMenu(entryId: number, ev: MouseEvent) {
+    if (focusMenuOpen === entryId) {
+      focusMenuOpen = null;
+    } else {
+      dayHeaderMenuOpen = false;
+      emojiDropdownOpen = null;
+      entryMenuOpen = null;
+      upcomingMenuOpen = null;
+      const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+      focusMenuPos = computeEntryMenuPosition(rect);
+      focusMenuOpen = entryId;
+    }
+  }
+
+  function toggleUpcomingMenu(entryId: number, ev: MouseEvent) {
+    if (upcomingMenuOpen === entryId) {
+      upcomingMenuOpen = null;
+    } else {
+      dayHeaderMenuOpen = false;
+      emojiDropdownOpen = null;
+      entryMenuOpen = null;
+      focusMenuOpen = null;
+      const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+      upcomingMenuPos = computeEntryMenuPosition(rect);
+      upcomingMenuOpen = entryId;
+    }
+  }
+
   /** Manual emoji change: just set emoji_id, no pattern matching. */
   function handleEmojiDrop(entryId: number, emojiId: string | null) {
     setEntryEmoji(entryId, emojiId).then(() => invalidateAll());
@@ -301,8 +464,20 @@
 
   async function copyToSlack() {
     const rules = emojiRules.length ? emojiRules : await getEmojiRules();
-    const lines = tasks.map((t) => formatLineForSlack(t, rules));
-    const text = lines.join('\n');
+    const sections: string[] = [];
+    if (tasks.length > 0) {
+      sections.push(tasks.map((t) => formatLineForSlack(t, rules)).join('\n'));
+    }
+    if (focusEntries.length > 0 || upcomingEntries.length > 0) {
+      const defaultEmojiId = await getUpcomingDefaultEmojiSetting();
+      const carriedFocus = focusEntries.map((e) => ({ ...e, emoji_id: defaultEmojiId }));
+      const upcomingLines = [...carriedFocus, ...upcomingEntries]
+        .map((e) => formatLineForSlack(e, rules))
+        .join('\n');
+      sections.push(`Upcoming:\n${upcomingLines}`);
+    }
+    const text = sections.join('\n\n');
+    if (!text) return;
     await navigator.clipboard.writeText(text);
     copiedFeedback = true;
     setTimeout(() => (copiedFeedback = false), 1500);
@@ -435,43 +610,124 @@
     class="flex-1 min-h-0 overflow-auto p-2"
   >
     <div class="pb-2">
-      <label
-        for={`day-focus-${data.date}`}
-        class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
-        >Focus</label
-      >
-      <RichText
-        id={`day-focus-${data.date}`}
-        value={focusText}
-        onSave={saveFocus}
-        placeholder="Focus…"
-        saveOn="cmdenter"
-        resync={true}
-        resyncKey={JSON.stringify([data.date, data.dayRow?.focus ?? ''])}
-        wrapperClass="w-full"
-        class="text-sm px-2 py-2 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none"
-      />
+      <div class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Focus</div>
+      <ul class="space-y-1 overflow-visible">
+        {#each focusEntries as entry, i (entry.id)}
+          <li
+            data-row-list="focus"
+            data-row-id={entry.id}
+            class="flex items-start gap-2 group relative rounded overflow-visible {reorderListKind === 'focus' && reorderSourceId === entry.id
+              ? 'opacity-50'
+              : ''}"
+          >
+            {#if reorderActive && reorderListKind === 'focus' && reorderInsertSlot === i}
+              <div
+                class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-0.5 -translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
+                aria-hidden="true"
+              ></div>
+            {/if}
+            {#if reorderActive && reorderListKind === 'focus' && reorderInsertSlot === focusEntries.length && i === focusEntries.length - 1}
+              <div
+                class="pointer-events-none absolute left-0 right-0 bottom-0 z-10 h-0.5 translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
+                aria-hidden="true"
+              ></div>
+            {/if}
+            <button
+              type="button"
+              onclick={(e) => onFocusCheckboxClick(entry.id, entry.content, e)}
+              onpointerdown={(e) => handleReorderPointerDown(entry.id, 'focus', e)}
+              onpointermove={(e) => handleReorderPointerMove(e.currentTarget as HTMLElement, e)}
+              onpointerup={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
+              onpointercancel={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
+              aria-label="Complete focus entry; drag to reorder"
+              class="appearance-none p-0 w-8 h-8 shrink-0 flex items-center justify-center rounded border border-gray-200 dark:border-gray-600 hover:border-blue-500 dark:hover:border-blue-400 bg-transparent cursor-grab active:cursor-grabbing touch-none select-none"
+            ></button>
+            <RichText
+              value={entry.content}
+              onSave={(val) => handleUpdateDayEntry(entry.id, val)}
+              saveOn="enter"
+              onEmptyBackspace={() => handleDeleteFocusEntry(entry.id)}
+              wrapperClass="flex-1 min-w-0"
+              class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words pr-8"
+            />
+            <div class="absolute right-0 top-0 flex items-center gap-0.5">
+              <button
+                type="button"
+                onclick={(e) => toggleFocusMenu(entry.id, e)}
+                class="p-1 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-opacity duration-150 {reorderActive || focusMenuOpen === entry.id
+                  ? 'opacity-100 pointer-events-auto'
+                  : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'}"
+                aria-label="Focus entry options"
+                aria-expanded={focusMenuOpen === entry.id}
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                  />
+                </svg>
+              </button>
+            </div>
+            {#if focusMenuOpen === entry.id}
+              <div
+                role="menu"
+                tabindex="-1"
+                class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
+                style:right="{focusMenuPos.right}px"
+                style:left="auto"
+                style:top={focusMenuPos.kind === 'below' ? `${focusMenuPos.top}px` : undefined}
+                style:bottom={focusMenuPos.kind === 'above' ? `${focusMenuPos.bottom}px` : undefined}
+                style:max-width="{focusMenuPos.maxWidthPx}px"
+                onclick={(e) => e.stopPropagation()}
+                onkeydown={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onclick={() => handleDeleteFocusEntry(entry.id)}
+                  class="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
+                >
+                  Delete
+                </button>
+              </div>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+      <div class="pt-1 flex gap-2">
+        <input
+          type="text"
+          bind:value={newFocus}
+          onkeydown={handleFocusKeydown}
+          placeholder="Add focus..."
+          class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+        />
+      </div>
     </div>
     <div
-      class="mb-2 border-t border-gray-200 dark:border-gray-700"
+      class="my-4 border-t border-gray-200 dark:border-gray-700"
       aria-hidden="true"
     ></div>
-    <ul class="pt-2 space-y-1 overflow-visible">
+    <div class="pt-2">
+      <div class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Log</div>
+    <ul class="space-y-1 overflow-visible">
       {#each tasks as task, i (task.id)}
         <li
-          data-task-row
-          data-task-id={task.id}
-          class="flex items-start gap-2 group relative rounded overflow-visible {reorderSourceId === task.id
+          data-row-list="task"
+          data-row-id={task.id}
+          class="flex items-start gap-2 group relative rounded overflow-visible {reorderListKind === 'task' && reorderSourceId === task.id
             ? 'opacity-50'
             : ''}"
         >
-          {#if reorderActive && reorderInsertSlot === i}
+          {#if reorderActive && reorderListKind === 'task' && reorderInsertSlot === i}
             <div
               class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-0.5 -translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
               aria-hidden="true"
             ></div>
           {/if}
-          {#if reorderActive && reorderInsertSlot === tasks.length && i === tasks.length - 1}
+          {#if reorderActive && reorderListKind === 'task' && reorderInsertSlot === tasks.length && i === tasks.length - 1}
             <div
               class="pointer-events-none absolute left-0 right-0 bottom-0 z-10 h-0.5 translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
               aria-hidden="true"
@@ -490,7 +746,7 @@
                 onEmojiActivatorClick(task.id, e as unknown as MouseEvent);
               }
             }}
-            onpointerdown={(e) => handleReorderPointerDown(task.id, e)}
+            onpointerdown={(e) => handleReorderPointerDown(task.id, 'task', e)}
             onpointermove={(e) => handleReorderPointerMove(e.currentTarget as HTMLElement, e)}
             onpointerup={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
             onpointercancel={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
@@ -515,48 +771,12 @@
             {/if}
           </div>
           {#if emojiDropdownOpen === task.id}
-            <div
-              role="menu"
-              tabindex="-1"
-              class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[180px] max-w-[min(100vw-2rem,20rem)] max-h-40 overflow-y-auto"
-              style="top: {emojiDropdownPos.top}px; left: {emojiDropdownPos.left}px;"
-              onclick={(e) => e.stopPropagation()}
-              onkeydown={(e) => e.stopPropagation()}
-            >
-              {#each emojiRules as rule (rule.id)}
-                <button
-                  type="button"
-                  onclick={() => selectEmoji(task.id, rule.id)}
-                  class="w-full flex items-start gap-2 px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  <img
-                    src={rule.image}
-                    alt={rule.label?.trim() || rule.text}
-                    class="w-5 h-5 shrink-0 mt-0.5"
-                    draggable="false"
-                  />
-                  <span class="min-w-0 flex-1 flex flex-col gap-0.5">
-                    {#if rule.label?.trim()}
-                      <span class="truncate">{rule.label.trim()}</span>
-                      <span class="text-xs text-gray-500 dark:text-gray-400 truncate"
-                        >:{rule.text}:</span
-                      >
-                    {:else}
-                      <span class="truncate">:{rule.text}:</span>
-                    {/if}
-                  </span>
-                </button>
-              {/each}
-              {#if task.emoji_id}
-                <button
-                  type="button"
-                  onclick={() => selectEmoji(task.id, null)}
-                  class="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
-                >
-                  Remove
-                </button>
-              {/if}
-            </div>
+            <EmojiPicker
+              rules={emojiRules}
+              currentEmojiId={task.emoji_id}
+              placement={emojiDropdownPos}
+              onSelect={(id) => selectEmoji(task.id, id)}
+            />
           {/if}
           <RichText
             value={task.content}
@@ -649,19 +869,151 @@
         </li>
       {/each}
     </ul>
-    <div
-      class="pt-2 flex gap-2"
-    >
-      <input
-        type="text"
-        bind:value={newTask}
-        onkeydown={handleKeydown}
-        placeholder="Add task..."
-            class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
-      />
+      <div class="pt-1 flex gap-2">
+        <input
+          type="text"
+          bind:value={newTask}
+          onkeydown={handleKeydown}
+          placeholder="Add task..."
+          class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+        />
+      </div>
     </div>
     <div
-      class="mt-3 border-t border-gray-200 dark:border-gray-700"
+      class="my-4 border-t border-gray-200 dark:border-gray-700"
+      aria-hidden="true"
+    ></div>
+    <div class="pt-2">
+      <div class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Upcoming</div>
+      <ul class="space-y-1 overflow-visible">
+        {#each upcomingEntries as entry, i (entry.id)}
+          <li
+            data-row-list="upcoming"
+            data-row-id={entry.id}
+            class="flex items-start gap-2 group relative rounded overflow-visible {reorderListKind === 'upcoming' && reorderSourceId === entry.id
+              ? 'opacity-50'
+              : ''}"
+          >
+            {#if reorderActive && reorderListKind === 'upcoming' && reorderInsertSlot === i}
+              <div
+                class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-0.5 -translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
+                aria-hidden="true"
+              ></div>
+            {/if}
+            {#if reorderActive && reorderListKind === 'upcoming' && reorderInsertSlot === upcomingEntries.length && i === upcomingEntries.length - 1}
+              <div
+                class="pointer-events-none absolute left-0 right-0 bottom-0 z-10 h-0.5 translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
+                aria-hidden="true"
+              ></div>
+            {/if}
+            <div
+              role="button"
+              aria-label="Change emoji; drag to reorder"
+              tabindex="0"
+              class="emoji-drag-handle w-8 h-8 shrink-0 flex items-center justify-center border border-gray-200 dark:border-gray-600 rounded cursor-grab active:cursor-grabbing relative touch-none select-none"
+              onclick={(e) => onUpcomingEmojiActivatorClick(entry.id, e)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onUpcomingEmojiActivatorClick(entry.id, e as unknown as MouseEvent);
+                }
+              }}
+              onpointerdown={(e) => handleReorderPointerDown(entry.id, 'upcoming', e)}
+              onpointermove={(e) => handleReorderPointerMove(e.currentTarget as HTMLElement, e)}
+              onpointerup={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
+              onpointercancel={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
+            >
+              {#if entry.emoji_id}
+                {#each emojiRules as rule (rule.id)}
+                  {#if rule.id === entry.emoji_id}
+                    <img
+                      src={rule.image}
+                      alt={rule.label?.trim() || rule.text}
+                      class="emoji-slot-img w-5 h-5 pointer-events-none select-none"
+                      draggable="false"
+                    />
+                  {/if}
+                {/each}
+              {:else}
+                <span class="text-gray-300 dark:text-gray-500 text-xs pointer-events-none select-none"
+                  >+</span
+                >
+              {/if}
+            </div>
+            {#if upcomingEmojiDropdownOpen === entry.id}
+              <EmojiPicker
+                rules={emojiRules}
+                currentEmojiId={entry.emoji_id}
+                placement={upcomingEmojiDropdownPos}
+                onSelect={(id) => selectUpcomingEmoji(entry.id, id)}
+              />
+            {/if}
+            <RichText
+              value={entry.content}
+              onSave={(val) => handleUpdateDayEntry(entry.id, val)}
+              saveOn="enter"
+              onEmptyBackspace={() => handleDeleteUpcomingEntry(entry.id)}
+              wrapperClass="flex-1 min-w-0"
+              class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words pr-8"
+            />
+            <div class="absolute right-0 top-0 flex items-center gap-0.5">
+              <button
+                type="button"
+                onclick={(e) => toggleUpcomingMenu(entry.id, e)}
+                class="p-1 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-opacity duration-150 {reorderActive || upcomingMenuOpen === entry.id
+                  ? 'opacity-100 pointer-events-auto'
+                  : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'}"
+                aria-label="Upcoming entry options"
+                aria-expanded={upcomingMenuOpen === entry.id}
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                  />
+                </svg>
+              </button>
+            </div>
+            {#if upcomingMenuOpen === entry.id}
+              <div
+                role="menu"
+                tabindex="-1"
+                class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
+                style:right="{upcomingMenuPos.right}px"
+                style:left="auto"
+                style:top={upcomingMenuPos.kind === 'below' ? `${upcomingMenuPos.top}px` : undefined}
+                style:bottom={upcomingMenuPos.kind === 'above' ? `${upcomingMenuPos.bottom}px` : undefined}
+                style:max-width="{upcomingMenuPos.maxWidthPx}px"
+                onclick={(e) => e.stopPropagation()}
+                onkeydown={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onclick={() => handleDeleteUpcomingEntry(entry.id)}
+                  class="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
+                >
+                  Delete
+                </button>
+              </div>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+      <div class="pt-1 flex gap-2">
+        <input
+          type="text"
+          bind:value={newUpcoming}
+          onkeydown={handleUpcomingKeydown}
+          placeholder="Add upcoming..."
+          class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+        />
+      </div>
+    </div>
+    <div
+      class="my-4 border-t border-gray-200 dark:border-gray-700"
       aria-hidden="true"
     ></div>
     <div class="pt-2">
@@ -699,7 +1051,7 @@
     </button>
     <button
       onclick={copyToSlack}
-      disabled={tasks.length === 0}
+      disabled={tasks.length === 0 && upcomingEntries.length === 0 && focusEntries.length === 0}
       class="flex-1 mx-4 py-2 text-sm font-medium rounded transition-all duration-200 disabled:opacity-40 disabled:pointer-events-none {copiedFeedback
         ? 'bg-green-500 text-white scale-[1.02]'
         : 'bg-green-600 text-white hover:bg-green-700'}"
@@ -730,14 +1082,17 @@
   </footer>
 </div>
 
-{#if emojiDropdownOpen !== null || entryMenuOpen !== null || dayHeaderMenuOpen}
+{#if emojiDropdownOpen !== null || upcomingEmojiDropdownOpen !== null || entryMenuOpen !== null || focusMenuOpen !== null || upcomingMenuOpen !== null || dayHeaderMenuOpen}
   <button
     type="button"
     class="fixed inset-0 z-40"
     aria-label="Close menu"
     onclick={() => {
       emojiDropdownOpen = null;
+      upcomingEmojiDropdownOpen = null;
       entryMenuOpen = null;
+      focusMenuOpen = null;
+      upcomingMenuOpen = null;
       dayHeaderMenuOpen = false;
     }}
   ></button>

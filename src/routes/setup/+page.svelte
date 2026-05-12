@@ -8,12 +8,12 @@
     getLastDay,
     reorderEmojiRules,
     type EmojiRule,
-    getFocusPatternsSetting,
-    getFocusStripPrefixSetting,
     getAlwaysOnTopSetting,
     setAppSetting,
     getWeeklyExcludedEmojisSetting,
     setWeeklyExcludedEmojisSetting,
+    getUpcomingDefaultEmojiSetting,
+    setUpcomingDefaultEmojiSetting,
   } from '$lib/api/db';
   import { applyAlwaysOnTop } from '$lib/tauri-window';
   import { parsePatterns, validatePattern as checkPatternSyntax } from '$lib/emoji';
@@ -23,10 +23,8 @@
   let theme = $state<'system' | 'light' | 'dark'>(getStoredTheme());
   let imageInputEl = $state<HTMLInputElement | undefined>(undefined);
   let editImageInputEl = $state<HTMLInputElement | undefined>(undefined);
-  let focusPatterns = $state<string[]>(['']);
-  let focusStripPrefix = $state(false);
   let alwaysOnTop = $state(false);
-  let focusRegexError = $state<string | null>(null);
+  let upcomingDefaultEmojiId = $state<string | null>(null);
   let weeklyExcludedIds = $state<Set<string>>(new Set());
   let labeledRules = $derived(rules.filter((r) => r.label?.trim()));
 
@@ -349,37 +347,14 @@
     rules = await getEmojiRules();
   }
 
-  function addFocusPattern() {
-    focusPatterns = [...focusPatterns, ''];
-  }
-
-  function removeFocusPattern(i: number) {
-    if (focusPatterns.length <= 1) return;
-    focusPatterns = focusPatterns.filter((_, idx) => idx !== i);
-    focusRegexError = null;
-  }
-
-  function validateFocusPattern(pattern: string): boolean {
-    const r = checkPatternSyntax(pattern);
-    focusRegexError = r.regexError;
-    return r.ok;
-  }
-
   async function saveAlwaysOnTopSetting() {
     await setAppSetting('always_on_top', alwaysOnTop ? '1' : '0');
     await applyAlwaysOnTop(alwaysOnTop);
   }
 
-  async function saveFocusSettings() {
-    const validPatterns = focusPatterns.map((p) => p.trim()).filter(Boolean);
-    for (const p of validPatterns) {
-      if (!validateFocusPattern(p)) return;
-    }
-    const patternStr = validPatterns.length > 0 ? JSON.stringify(validPatterns) : '[]';
-    await Promise.all([
-      setAppSetting('focus_patterns', patternStr),
-      setAppSetting('focus_strip_prefix', focusStripPrefix ? '1' : '0'),
-    ]);
+  async function saveUpcomingDefaultEmoji(value: string) {
+    upcomingDefaultEmojiId = value ? value : null;
+    await setUpcomingDefaultEmojiSetting(upcomingDefaultEmojiId);
   }
 
   function deleteRule(id: string) {
@@ -404,11 +379,8 @@
 
   $effect(() => {
     getEmojiRules().then((r) => (rules = r));
-    getFocusPatternsSetting().then((p) => {
-      focusPatterns = p.length > 0 ? [...p] : [''];
-    });
-    getFocusStripPrefixSetting().then((v) => (focusStripPrefix = v));
     getAlwaysOnTopSetting().then((v) => (alwaysOnTop = v));
+    getUpcomingDefaultEmojiSetting().then((id) => (upcomingDefaultEmojiId = id));
     getWeeklyExcludedEmojisSetting().then((ids) => (weeklyExcludedIds = new Set(ids)));
   });
 </script>
@@ -468,69 +440,21 @@
 
       <section class="space-y-3">
         <div>
-          <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Focus patterns</h2>
+          <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Upcoming</h2>
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            When a new day is created, if a pattern matches any entry from your last recorded day, that entry is copied into Focus.
+            Default emoji applied to newly-added upcoming entries.
           </p>
         </div>
-
-        <div class="space-y-2">
-          {#each focusPatterns as _, i}
-            <div class="flex gap-1">
-              <input
-                type="text"
-                bind:value={focusPatterns[i]}
-                oninput={() => validateFocusPattern(focusPatterns[i])}
-                onblur={saveFocusSettings}
-                placeholder="Plain text or /regex/"
-                autocorrect="off"
-                autocomplete="off"
-                spellcheck="false"
-                class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
-              />
-              {#if focusPatterns.length > 1}
-                <button
-                  type="button"
-                  onclick={() => {
-                    removeFocusPattern(i);
-                    saveFocusSettings();
-                  }}
-                  class="p-1 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 shrink-0"
-                  aria-label="Remove focus pattern"
-                >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              {/if}
-            </div>
+        <select
+          value={upcomingDefaultEmojiId ?? ''}
+          onchange={(e) => saveUpcomingDefaultEmoji((e.currentTarget as HTMLSelectElement).value)}
+          class="text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+        >
+          <option value="">None</option>
+          {#each rules as rule (rule.id)}
+            <option value={rule.id}>{rule.label?.trim() || `:${rule.text}:`}</option>
           {/each}
-          <button
-            type="button"
-            onclick={() => {
-              addFocusPattern();
-              saveFocusSettings();
-            }}
-            class="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            + Add pattern
-          </button>
-        </div>
-
-        <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 select-none">
-          <input
-            type="checkbox"
-            bind:checked={focusStripPrefix}
-            onchange={saveFocusSettings}
-            class="w-4 h-4"
-          />
-          Remove matched pattern when copying (prefix only)
-        </label>
-
-        <p class="text-xs text-gray-500">Plain text = substring match. Use /pattern/ for regex. Multiple patterns = OR.</p>
-        {#if focusRegexError}
-          <p class="text-xs text-red-600">{focusRegexError}</p>
-        {/if}
+        </select>
       </section>
 
       <section class="space-y-3">
