@@ -660,7 +660,7 @@
 </script>
 
 <div class="h-screen flex flex-col overflow-hidden">
-  <header class="flex items-center justify-between p-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
+  <header class="flex items-center justify-between p-2 border-b border-gray-300 dark:border-gray-700 shrink-0">
     <div class="flex items-center gap-2 min-w-0">
       <button
         onclick={openDrawer}
@@ -705,7 +705,7 @@
       <div
         role="menu"
         tabindex="-1"
-        class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
+        class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
         style:right="{dayHeaderMenuPos.right}px"
         style:left="auto"
         style:top={dayHeaderMenuPos.kind === 'below' ? `${dayHeaderMenuPos.top}px` : undefined}
@@ -760,7 +760,7 @@
               onpointerup={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
               onpointercancel={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
               aria-label="Complete focus entry; drag to reorder"
-              class="appearance-none p-0 w-8 h-8 shrink-0 flex items-center justify-center rounded border border-gray-200 dark:border-gray-600 hover:border-blue-500 dark:hover:border-blue-400 bg-transparent cursor-grab active:cursor-grabbing touch-none select-none"
+              class="appearance-none p-0 w-8 h-8 shrink-0 flex items-center justify-center rounded border border-gray-300 dark:border-gray-600 hover:border-blue-500 dark:hover:border-blue-400 bg-transparent cursor-grab active:cursor-grabbing touch-none select-none"
             ></button>
             <RichText
               value={entry.content}
@@ -769,7 +769,7 @@
               onEmptyBackspace={() => handleDeleteFocusEntry(entry.id)}
               wrapperClass="flex-1 min-w-0"
               {mentions}
-              class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words pr-8"
+              class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words pr-8"
             />
             <div class="absolute right-0 top-0 flex items-center gap-0.5">
               <button
@@ -795,7 +795,7 @@
               <div
                 role="menu"
                 tabindex="-1"
-                class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
+                class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
                 style:right="{focusMenuPos.right}px"
                 style:left="auto"
                 style:top={focusMenuPos.kind === 'below' ? `${focusMenuPos.top}px` : undefined}
@@ -827,12 +827,12 @@
           onclick={(e) => refreshMentionInputState('focus', e.currentTarget as HTMLInputElement)}
           onblur={() => { if (mentionInputState?.kind === 'focus') mentionInputState = null; }}
           placeholder="Add focus..."
-          class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+          class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
         />
       </div>
     </div>
     <div
-      class="my-4 border-t border-gray-200 dark:border-gray-700"
+      class="my-4 border-t border-gray-300 dark:border-gray-700"
       aria-hidden="true"
     ></div>
     <div class="pt-2">
@@ -863,7 +863,7 @@
             role="button"
             aria-label="Change emoji; drag to reorder"
             tabindex="0"
-            class="emoji-drag-handle w-8 h-8 shrink-0 flex items-center justify-center border border-gray-200 dark:border-gray-600 rounded cursor-grab active:cursor-grabbing relative touch-none select-none"
+            class="emoji-drag-handle w-8 h-8 shrink-0 flex items-center justify-center border border-gray-300 dark:border-gray-600 rounded cursor-grab active:cursor-grabbing relative touch-none select-none"
             onclick={(e) => onEmojiActivatorClick(task.id, e)}
             onkeydown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
@@ -910,7 +910,7 @@
             onEmptyBackspace={() => handleDelete(task.id)}
             wrapperClass="flex-1 min-w-0"
             {mentions}
-            class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words {task.pinned ? 'pr-14' : 'pr-8'}"
+            class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words {task.pinned ? 'pr-14' : 'pr-8'}"
           />
           <div class="absolute right-0 top-0 flex items-center gap-0.5">
             {#if task.pinned}
@@ -965,7 +965,7 @@
             <div
               role="menu"
               tabindex="-1"
-              class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
+              class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
               style:right="{entryMenuPos.right}px"
               style:left="auto"
               style:top={entryMenuPos.kind === 'below' ? `${entryMenuPos.top}px` : undefined}
@@ -1005,12 +1005,12 @@
           onclick={(e) => refreshMentionInputState('task', e.currentTarget as HTMLInputElement)}
           onblur={() => { if (mentionInputState?.kind === 'task') mentionInputState = null; }}
           placeholder="Add task..."
-          class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+          class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
         />
       </div>
     </div>
     <div
-      class="my-4 border-t border-gray-200 dark:border-gray-700"
+      class="my-4 border-t border-gray-300 dark:border-gray-700"
       aria-hidden="true"
     ></div>
     <div class="pt-2">
@@ -1040,7 +1040,7 @@
               role="button"
               aria-label="Change emoji; drag to reorder"
               tabindex="0"
-              class="emoji-drag-handle w-8 h-8 shrink-0 flex items-center justify-center border border-gray-200 dark:border-gray-600 rounded cursor-grab active:cursor-grabbing relative touch-none select-none"
+              class="emoji-drag-handle w-8 h-8 shrink-0 flex items-center justify-center border border-gray-300 dark:border-gray-600 rounded cursor-grab active:cursor-grabbing relative touch-none select-none"
               onclick={(e) => onUpcomingEmojiActivatorClick(entry.id, e)}
               onkeydown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -1085,7 +1085,7 @@
               onEmptyBackspace={() => handleDeleteUpcomingEntry(entry.id)}
               wrapperClass="flex-1 min-w-0"
               {mentions}
-              class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words pr-8"
+              class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words pr-8"
             />
             <div class="absolute right-0 top-0 flex items-center gap-0.5">
               <button
@@ -1111,7 +1111,7 @@
               <div
                 role="menu"
                 tabindex="-1"
-                class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
+                class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
                 style:right="{upcomingMenuPos.right}px"
                 style:left="auto"
                 style:top={upcomingMenuPos.kind === 'below' ? `${upcomingMenuPos.top}px` : undefined}
@@ -1143,12 +1143,12 @@
           onclick={(e) => refreshMentionInputState('upcoming', e.currentTarget as HTMLInputElement)}
           onblur={() => { if (mentionInputState?.kind === 'upcoming') mentionInputState = null; }}
           placeholder="Add upcoming..."
-          class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+          class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
         />
       </div>
     </div>
     <div
-      class="my-4 border-t border-gray-200 dark:border-gray-700"
+      class="my-4 border-t border-gray-300 dark:border-gray-700"
       aria-hidden="true"
     ></div>
     <div class="pt-2">
@@ -1167,12 +1167,12 @@
         resyncKey={JSON.stringify([data.date, data.dayRow?.note ?? ''])}
         wrapperClass="w-full"
         {mentions}
-        class="text-sm px-2 py-2 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none"
+        class="text-sm px-2 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none"
       />
     </div>
   </section>
 
-  <footer class="p-2 border-t border-gray-200 dark:border-gray-700 shrink-0 flex items-center gap-2">
+  <footer class="p-2 border-t border-gray-300 dark:border-gray-700 shrink-0 flex items-center gap-2">
     <button
       type="button"
       onclick={() => data.prevDay && goto(`/day/${data.prevDay}`)}

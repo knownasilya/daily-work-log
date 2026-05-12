@@ -104,7 +104,7 @@
 <div class="h-dvh flex flex-col bg-white dark:bg-gray-900">
   <main class="flex min-h-0 flex-1 flex-col overflow-y-auto">
     <div
-      class="sticky top-0 z-10 shrink-0 border-b border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
+      class="sticky top-0 z-10 shrink-0 border-b border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-900"
     >
       <header class="flex items-center gap-2 p-2">
         <button
@@ -126,7 +126,7 @@
         <p class="text-sm text-gray-500 py-4">No weeks logged yet.</p>
       {:else}
         {#each weeks as week (week.week)}
-          <div class="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+          <div class="rounded-lg border border-gray-300 dark:border-gray-700 p-3">
             <div class="flex items-baseline justify-between gap-2 mb-2">
               <span class="text-sm font-medium text-gray-900 dark:text-gray-100">
                 {formatWeekRange(week)}

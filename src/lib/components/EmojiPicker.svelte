@@ -35,14 +35,14 @@
 <div
   role="menu"
   tabindex="-1"
-  class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[180px] max-w-[min(100vw-2rem,20rem)] flex flex-col"
+  class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded shadow-lg py-1 min-w-[180px] max-w-[min(100vw-2rem,20rem)] flex flex-col"
   style:left="{placement.left}px"
   style:top={placement.kind === 'below' ? `${placement.top}px` : undefined}
   style:bottom={placement.kind === 'above' ? `${placement.bottom}px` : undefined}
   onclick={(e) => e.stopPropagation()}
   onkeydown={(e) => e.stopPropagation()}
 >
-  <div class="px-2 py-1 border-b border-gray-200 dark:border-gray-700 shrink-0">
+  <div class="px-2 py-1 border-b border-gray-300 dark:border-gray-700 shrink-0">
     <input
       type="text"
       bind:value={query}
@@ -51,7 +51,7 @@
       autocorrect="off"
       autocomplete="off"
       spellcheck="false"
-      class="w-full text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+      class="w-full text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
     />
   </div>
   <div class="max-h-40 overflow-y-auto">
@@ -85,7 +85,7 @@
     <button
       type="button"
       onclick={() => onSelect(null)}
-      class="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 border-t border-gray-200 dark:border-gray-700 shrink-0"
+      class="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 border-t border-gray-300 dark:border-gray-700 shrink-0"
     >
       Remove
     </button>

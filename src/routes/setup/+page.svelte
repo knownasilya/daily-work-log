@@ -449,7 +449,7 @@
 <div class="h-dvh flex flex-col bg-white dark:bg-gray-900">
   <main class="flex min-h-0 flex-1 flex-col overflow-y-auto" onpaste={handlePaste}>
     <header
-      class="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-gray-900"
+      class="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-gray-300 bg-white p-2 dark:border-gray-700 dark:bg-gray-900"
     >
       <button
         type="button"
@@ -519,7 +519,7 @@
           <select
             value={upcomingDefaultEmojiId ?? ''}
             onchange={(e) => saveUpcomingDefaultEmoji((e.currentTarget as HTMLSelectElement).value)}
-            class="text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+            class="text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
           >
             <option value="">None</option>
             {#each rules as rule (rule.id)}
@@ -550,7 +550,7 @@
                 id="completed-default-emoji"
                 value={completedDefaultEmojiId ?? ''}
                 onchange={(e) => saveCompletedDefaultEmoji((e.currentTarget as HTMLSelectElement).value)}
-                class="text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                class="text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
               >
                 <option value="">None</option>
                 {#each rules as rule (rule.id)}
@@ -577,7 +577,7 @@
                 id="incomplete-focus-default-emoji"
                 value={incompleteFocusDefaultEmojiId ?? ''}
                 onchange={(e) => saveIncompleteFocusDefaultEmoji((e.currentTarget as HTMLSelectElement).value)}
-                class="text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                class="text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
               >
                 <option value="">Use upcoming default</option>
                 {#each rules as rule (rule.id)}
@@ -593,7 +593,7 @@
         <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Add emoji rule</h2>
         <div class="space-y-3">
         <div
-          class="border border-gray-200 dark:border-gray-700 rounded p-2 flex items-center gap-2 min-h-12"
+          class="border border-gray-300 dark:border-gray-700 rounded p-2 flex items-center gap-2 min-h-12"
           role="group"
         >
           {#if newRule.image}
@@ -616,7 +616,7 @@
           <button
             type="button"
             onclick={() => imageInputEl?.click()}
-            class="text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded shrink-0 hover:bg-gray-100 dark:hover:bg-gray-800"
+            class="text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded shrink-0 hover:bg-gray-100 dark:hover:bg-gray-800"
           >
             {newRule.image ? 'Replace' : 'Upload'}
           </button>
@@ -629,7 +629,7 @@
             newRule.image = v;
           }}
           placeholder="Or paste image URL"
-          class="w-full text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+          class="w-full text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
         />
         <input
           type="text"
@@ -638,7 +638,7 @@
           autocorrect="off"
           autocomplete="off"
           spellcheck="false"
-          class="w-full text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+          class="w-full text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
         />
         <input
           type="text"
@@ -647,7 +647,7 @@
           autocorrect="off"
           autocomplete="off"
           spellcheck="false"
-          class="w-full text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+          class="w-full text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
         />
         <div class="space-y-2">
           {#each newRule.patterns as _, i}
@@ -660,7 +660,7 @@
                 autocorrect="off"
                 autocomplete="off"
                 spellcheck="false"
-                class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
               />
               {#if newRule.patterns.length > 1}
                 <button
@@ -728,7 +728,7 @@
         <ul class="space-y-3">
         {#each rules as rule, ruleIndex (rule.id)}
           <li
-            class="border border-gray-200 dark:border-gray-700 rounded p-3 relative overflow-visible {reorderSourceId === rule.id
+            class="border border-gray-300 dark:border-gray-700 rounded p-3 relative overflow-visible {reorderSourceId === rule.id
               ? 'opacity-50'
               : ''}"
             data-rule-id={rule.id}
@@ -749,7 +749,7 @@
             {#if editingRuleId === rule.id && editRule}
               <div class="space-y-3">
                 <div
-                  class="border border-gray-200 dark:border-gray-700 rounded p-2 flex items-center gap-2 min-h-12"
+                  class="border border-gray-300 dark:border-gray-700 rounded p-2 flex items-center gap-2 min-h-12"
                   role="group"
                 >
                   {#if editRule.image}
@@ -772,7 +772,7 @@
                   <button
                     type="button"
                     onclick={() => editImageInputEl?.click()}
-                    class="text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded shrink-0 hover:bg-gray-100 dark:hover:bg-gray-800"
+                    class="text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded shrink-0 hover:bg-gray-100 dark:hover:bg-gray-800"
                   >
                     {editRule.image ? 'Replace' : 'Upload'}
                   </button>
@@ -785,7 +785,7 @@
                     editRule = editRule ? { ...editRule, image: v } : null;
                   }}
                   placeholder="Or paste image URL"
-                  class="w-full text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                  class="w-full text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
                 />
                 <input
                   type="text"
@@ -798,7 +798,7 @@
                   autocorrect="off"
                   autocomplete="off"
                   spellcheck="false"
-                  class="w-full text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                  class="w-full text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
                 />
                 <input
                   type="text"
@@ -811,7 +811,7 @@
                   autocorrect="off"
                   autocomplete="off"
                   spellcheck="false"
-                  class="w-full text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                  class="w-full text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
                 />
                 <div class="space-y-2">
                   {#each editRule.patterns as _, i}
@@ -831,7 +831,7 @@
                         autocorrect="off"
                         autocomplete="off"
                         spellcheck="false"
-                        class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                        class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
                       />
                       {#if editRule.patterns.length > 1}
                         <button
@@ -870,7 +870,7 @@
                   <button
                     type="button"
                     onclick={cancelEdit}
-                    class="py-2 px-3 text-sm rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800"
+                    class="py-2 px-3 text-sm rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800"
                   >
                     Cancel
                   </button>
@@ -882,7 +882,7 @@
                   role="button"
                   tabindex="0"
                   aria-label="Drag to reorder"
-                  class="emoji-drag-handle w-8 h-8 shrink-0 flex items-center justify-center border border-gray-200 dark:border-gray-600 rounded cursor-grab active:cursor-grabbing relative touch-none select-none"
+                  class="emoji-drag-handle w-8 h-8 shrink-0 flex items-center justify-center border border-gray-300 dark:border-gray-600 rounded cursor-grab active:cursor-grabbing relative touch-none select-none"
                   onpointerdown={(e) => handleReorderPointerDown(rule.id, e)}
                   onpointermove={(e) => handleReorderPointerMove(e.currentTarget as HTMLElement, e)}
                   onpointerup={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
@@ -975,7 +975,7 @@
             autocorrect="off"
             autocomplete="off"
             spellcheck="false"
-            class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+            class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
           />
           <button
             type="button"

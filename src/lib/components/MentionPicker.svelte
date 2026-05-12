@@ -32,7 +32,7 @@
 <div
   role="menu"
   tabindex="-1"
-  class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] max-w-[min(100vw-2rem,16rem)] flex flex-col"
+  class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] max-w-[min(100vw-2rem,16rem)] flex flex-col"
   style:left="{placement.left}px"
   style:top={placement.kind === 'below' ? `${placement.top}px` : undefined}
   style:bottom={placement.kind === 'above' ? `${placement.bottom}px` : undefined}

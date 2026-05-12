@@ -43,7 +43,7 @@
 <div class="h-dvh flex flex-col bg-white dark:bg-gray-900">
   <main class="flex min-h-0 flex-1 flex-col overflow-y-auto">
     <div
-      class="sticky top-0 z-10 shrink-0 border-b border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
+      class="sticky top-0 z-10 shrink-0 border-b border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-900"
     >
       <header class="flex items-center gap-2 p-2">
         <button
@@ -68,7 +68,7 @@
           autocomplete="off"
           autocorrect="off"
           spellcheck="false"
-          class="w-full rounded border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+          class="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
         />
       </div>
     </div>
