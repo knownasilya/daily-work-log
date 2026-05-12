@@ -86,6 +86,38 @@ export async function setUpcomingDefaultEmojiSetting(emojiId: string | null): Pr
   await setAppSetting('upcoming_default_emoji_id', emojiId);
 }
 
+export async function getCompletedDefaultEmojiSetting(): Promise<string | null> {
+  const raw = await getAppSetting('completed_default_emoji_id');
+  return raw && raw.trim() ? raw : null;
+}
+
+export async function setCompletedDefaultEmojiSetting(emojiId: string | null): Promise<void> {
+  if (emojiId == null) {
+    const db = await getDb();
+    await db.execute('DELETE FROM app_settings WHERE key = $1', ['completed_default_emoji_id']);
+    return;
+  }
+  await setAppSetting('completed_default_emoji_id', emojiId);
+}
+
+export async function getIncompleteFocusDefaultEmojiSetting(): Promise<string | null> {
+  const raw = await getAppSetting('incomplete_focus_default_emoji_id');
+  return raw && raw.trim() ? raw : null;
+}
+
+export async function setIncompleteFocusDefaultEmojiSetting(
+  emojiId: string | null
+): Promise<void> {
+  if (emojiId == null) {
+    const db = await getDb();
+    await db.execute('DELETE FROM app_settings WHERE key = $1', [
+      'incomplete_focus_default_emoji_id',
+    ]);
+    return;
+  }
+  await setAppSetting('incomplete_focus_default_emoji_id', emojiId);
+}
+
 /** Latest `days.day` strictly before `day` (YYYY-MM-DD string order), or null. */
 export async function getLatestDayBefore(day: string): Promise<string | null> {
   const db = await getDb();

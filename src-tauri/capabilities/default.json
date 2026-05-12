@@ -13,6 +13,7 @@
     "sql:allow-load",
     "sql:allow-select",
     "dialog:default",
+    "clipboard-manager:allow-write-text",
     "window-state:default",
     "core:window:allow-set-always-on-top"
   ]

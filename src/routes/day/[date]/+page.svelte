@@ -23,7 +23,10 @@
     reorderDayEntries,
     completeFocusEntry,
     getUpcomingDefaultEmojiSetting,
+    getCompletedDefaultEmojiSetting,
+    getIncompleteFocusDefaultEmojiSetting,
   } from '$lib/api/db';
+  import { writeText as clipboardWriteText } from '@tauri-apps/plugin-clipboard-manager';
   import { formatDatePretty } from '$lib/utils';
   import { formatLineForSlack, tryAutoAssignEmoji } from '$lib/emoji';
   import { toYYYYMMDD } from '$lib/utils';
@@ -497,9 +500,11 @@
     deleteDayEntry(id).then(() => invalidateAll());
   }
 
-  function handleCompleteFocus(id: number, content: string) {
-    const emojiId = tryAutoAssignEmoji(content, emojiRules);
-    completeFocusEntry(id, emojiId).then(() => invalidateAll());
+  async function handleCompleteFocus(id: number, content: string) {
+    let emojiId = tryAutoAssignEmoji(content, emojiRules);
+    if (!emojiId) emojiId = await getCompletedDefaultEmojiSetting();
+    await completeFocusEntry(id, emojiId);
+    await invalidateAll();
   }
 
   function onFocusCheckboxClick(id: number, content: string, ev: MouseEvent) {
@@ -582,8 +587,10 @@
       sections.push(tasks.map((t) => formatLineForSlack(t, rules)).join('\n'));
     }
     if (focusEntries.length > 0 || upcomingEntries.length > 0) {
-      const defaultEmojiId = await getUpcomingDefaultEmojiSetting();
-      const carriedFocus = focusEntries.map((e) => ({ ...e, emoji_id: defaultEmojiId }));
+      const focusFallback =
+        (await getIncompleteFocusDefaultEmojiSetting()) ??
+        (await getUpcomingDefaultEmojiSetting());
+      const carriedFocus = focusEntries.map((e) => ({ ...e, emoji_id: focusFallback }));
       const upcomingLines = [...carriedFocus, ...upcomingEntries]
         .map((e) => formatLineForSlack(e, rules))
         .join('\n');
@@ -591,7 +598,7 @@
     }
     const text = sections.join('\n\n');
     if (!text) return;
-    await navigator.clipboard.writeText(text);
+    await clipboardWriteText(text);
     copiedFeedback = true;
     setTimeout(() => (copiedFeedback = false), 1500);
   }

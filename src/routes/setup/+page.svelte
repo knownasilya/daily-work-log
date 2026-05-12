@@ -14,6 +14,10 @@
     setWeeklyExcludedEmojisSetting,
     getUpcomingDefaultEmojiSetting,
     setUpcomingDefaultEmojiSetting,
+    getCompletedDefaultEmojiSetting,
+    setCompletedDefaultEmojiSetting,
+    getIncompleteFocusDefaultEmojiSetting,
+    setIncompleteFocusDefaultEmojiSetting,
     getMentions,
     setMentions,
     addMentionsIfMissing,
@@ -28,8 +32,22 @@
   let editImageInputEl = $state<HTMLInputElement | undefined>(undefined);
   let alwaysOnTop = $state(false);
   let upcomingDefaultEmojiId = $state<string | null>(null);
+  let completedDefaultEmojiId = $state<string | null>(null);
+  let incompleteFocusDefaultEmojiId = $state<string | null>(null);
   let weeklyExcludedIds = $state<Set<string>>(new Set());
   let labeledRules = $derived(rules.filter((r) => r.label?.trim()));
+  let rulesById = $derived(new Map(rules.map((r) => [r.id, r])));
+  let upcomingDefaultRule = $derived(
+    upcomingDefaultEmojiId ? rulesById.get(upcomingDefaultEmojiId) ?? null : null
+  );
+  let completedDefaultRule = $derived(
+    completedDefaultEmojiId ? rulesById.get(completedDefaultEmojiId) ?? null : null
+  );
+  let incompleteFocusDefaultRule = $derived(
+    incompleteFocusDefaultEmojiId
+      ? rulesById.get(incompleteFocusDefaultEmojiId) ?? null
+      : upcomingDefaultRule
+  );
   let mentions = $state<string[]>([]);
   let newMention = $state('');
   let sortedMentions = $derived(
@@ -365,6 +383,16 @@
     await setUpcomingDefaultEmojiSetting(upcomingDefaultEmojiId);
   }
 
+  async function saveCompletedDefaultEmoji(value: string) {
+    completedDefaultEmojiId = value ? value : null;
+    await setCompletedDefaultEmojiSetting(completedDefaultEmojiId);
+  }
+
+  async function saveIncompleteFocusDefaultEmoji(value: string) {
+    incompleteFocusDefaultEmojiId = value ? value : null;
+    await setIncompleteFocusDefaultEmojiSetting(incompleteFocusDefaultEmojiId);
+  }
+
   function deleteRule(id: string) {
     if (editingRuleId === id) cancelEdit();
     deleteEmojiRule(id).then(() => {
@@ -411,6 +439,8 @@
     getEmojiRules().then((r) => (rules = r));
     getAlwaysOnTopSetting().then((v) => (alwaysOnTop = v));
     getUpcomingDefaultEmojiSetting().then((id) => (upcomingDefaultEmojiId = id));
+    getCompletedDefaultEmojiSetting().then((id) => (completedDefaultEmojiId = id));
+    getIncompleteFocusDefaultEmojiSetting().then((id) => (incompleteFocusDefaultEmojiId = id));
     getWeeklyExcludedEmojisSetting().then((ids) => (weeklyExcludedIds = new Set(ids)));
     getMentions().then((m) => (mentions = m));
   });
@@ -476,16 +506,87 @@
             Default emoji applied to newly-added upcoming entries.
           </p>
         </div>
-        <select
-          value={upcomingDefaultEmojiId ?? ''}
-          onchange={(e) => saveUpcomingDefaultEmoji((e.currentTarget as HTMLSelectElement).value)}
-          class="text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
-        >
-          <option value="">None</option>
-          {#each rules as rule (rule.id)}
-            <option value={rule.id}>{rule.label?.trim() || `:${rule.text}:`}</option>
-          {/each}
-        </select>
+        <div class="flex items-center gap-2">
+          <div class="w-6 h-6 shrink-0 flex items-center justify-center">
+            {#if upcomingDefaultRule}
+              <img
+                src={upcomingDefaultRule.image}
+                alt={upcomingDefaultRule.label?.trim() || upcomingDefaultRule.text}
+                class="w-5 h-5 object-contain"
+              />
+            {/if}
+          </div>
+          <select
+            value={upcomingDefaultEmojiId ?? ''}
+            onchange={(e) => saveUpcomingDefaultEmoji((e.currentTarget as HTMLSelectElement).value)}
+            class="text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+          >
+            <option value="">None</option>
+            {#each rules as rule (rule.id)}
+              <option value={rule.id}>{rule.label?.trim() || `:${rule.text}:`}</option>
+            {/each}
+          </select>
+        </div>
+      </section>
+
+      <section class="space-y-3">
+        <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Focus</h2>
+        <div class="space-y-2">
+          <div>
+            <label for="completed-default-emoji" class="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Default emoji when completed (no pattern match)
+            </label>
+            <div class="flex items-center gap-2">
+              <div class="w-6 h-6 shrink-0 flex items-center justify-center">
+                {#if completedDefaultRule}
+                  <img
+                    src={completedDefaultRule.image}
+                    alt={completedDefaultRule.label?.trim() || completedDefaultRule.text}
+                    class="w-5 h-5 object-contain"
+                  />
+                {/if}
+              </div>
+              <select
+                id="completed-default-emoji"
+                value={completedDefaultEmojiId ?? ''}
+                onchange={(e) => saveCompletedDefaultEmoji((e.currentTarget as HTMLSelectElement).value)}
+                class="text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+              >
+                <option value="">None</option>
+                {#each rules as rule (rule.id)}
+                  <option value={rule.id}>{rule.label?.trim() || `:${rule.text}:`}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label for="incomplete-focus-default-emoji" class="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Default emoji for incomplete focus when copying tasks
+            </label>
+            <div class="flex items-center gap-2">
+              <div class="w-6 h-6 shrink-0 flex items-center justify-center">
+                {#if incompleteFocusDefaultRule}
+                  <img
+                    src={incompleteFocusDefaultRule.image}
+                    alt={incompleteFocusDefaultRule.label?.trim() || incompleteFocusDefaultRule.text}
+                    class="w-5 h-5 object-contain {incompleteFocusDefaultEmojiId ? '' : 'opacity-60'}"
+                  />
+                {/if}
+              </div>
+              <select
+                id="incomplete-focus-default-emoji"
+                value={incompleteFocusDefaultEmojiId ?? ''}
+                onchange={(e) => saveIncompleteFocusDefaultEmoji((e.currentTarget as HTMLSelectElement).value)}
+                class="text-sm px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+              >
+                <option value="">Use upcoming default</option>
+                {#each rules as rule (rule.id)}
+                  <option value={rule.id}>{rule.label?.trim() || `:${rule.text}:`}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="space-y-3">
