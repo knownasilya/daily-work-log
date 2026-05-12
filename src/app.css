@@ -18,21 +18,37 @@
   html.dark textarea::placeholder {
     color: rgb(107 114 128); /* gray-500 */
   }
-  /* Dark mode scrollbar */
-  html.dark {
+  /* Scrollbar — track matches page background. Gutter reserved only on real scroll containers (not html) to avoid a fixed reserved strip at the page edge. */
+  html {
     scrollbar-width: thin;
-    scrollbar-color: rgb(75 85 99) rgb(31 41 55); /* gray-600 on gray-800 */
+    scrollbar-color: rgb(209 213 219) rgb(255 255 255); /* gray-300 on white */
   }
-  html.dark ::-webkit-scrollbar {
+  main.overflow-y-auto,
+  section.overflow-auto {
+    scrollbar-gutter: stable;
+  }
+  ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
+  ::-webkit-scrollbar-track {
+    background: rgb(255 255 255); /* white */
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(209 213 219); /* gray-300 */
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(156 163 175); /* gray-400 */
+  }
+  html.dark {
+    scrollbar-color: rgb(75 85 99) rgb(17 24 39); /* gray-600 on gray-900 */
+  }
   html.dark ::-webkit-scrollbar-track {
-    background: rgb(31 41 55); /* gray-800 */
+    background: rgb(17 24 39); /* gray-900 */
   }
   html.dark ::-webkit-scrollbar-thumb {
     background: rgb(75 85 99); /* gray-600 */
-    border-radius: 4px;
   }
   html.dark ::-webkit-scrollbar-thumb:hover {
     background: rgb(107 114 128); /* gray-500 */
