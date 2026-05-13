@@ -22,6 +22,7 @@
     deleteDayEntry,
     reorderDayEntries,
     completeFocusEntry,
+    moveItemBetweenLists,
     getUpcomingDefaultEmojiSetting,
     getCompletedDefaultEmojiSetting,
     getIncompleteFocusDefaultEmojiSetting,
@@ -101,9 +102,12 @@
   type PendingPointer = { x: number; y: number; entityId: number; kind: ListKind; pointerId: number };
   let pendingPointer: PendingPointer | null = null;
   let reorderActive = $state(false);
-  let reorderListKind = $state<ListKind | null>(null);
+  /** Where the dragged item came from (locked at pointerdown). */
+  let reorderSourceKind = $state<ListKind | null>(null);
   let reorderSourceId = $state<number | null>(null);
-  /** Insert before this index in the active list (0..length); only visual until pointerup. */
+  /** Where the dragged item would land (updates as the pointer moves over lists). */
+  let reorderTargetKind = $state<ListKind | null>(null);
+  /** Insert before this index in the target list (0..length); only visual until pointerup. */
   let reorderInsertSlot = $state<number | null>(null);
   let ignoreClickAfterDrag = false;
 
@@ -262,17 +266,30 @@
     return next;
   }
 
-  function pointerEventToInsertSlot(e: PointerEvent, kind: ListKind): number | null {
-    const hit = document.elementFromPoint(e.clientX, e.clientY);
-    const row = hit?.closest(`[data-row-list="${kind}"]`) as HTMLElement | null;
-    if (!row) return null;
-    const id = Number(row.dataset.rowId);
-    const items = listItemsFor(kind);
-    const idx = items.findIndex((t) => t.id === id);
-    if (idx < 0) return null;
-    const rect = row.getBoundingClientRect();
-    const before = e.clientY < rect.top + rect.height / 2;
-    return before ? idx : idx + 1;
+  function pointerEventToTarget(e: PointerEvent): { kind: ListKind; slot: number } | null {
+    const hit = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+    const row = hit?.closest('[data-row-list]') as HTMLElement | null;
+    if (row) {
+      const kind = row.dataset.rowList as ListKind | undefined;
+      if (kind === 'task' || kind === 'focus' || kind === 'upcoming') {
+        const id = Number(row.dataset.rowId);
+        const items = listItemsFor(kind);
+        const idx = items.findIndex((t) => t.id === id);
+        if (idx >= 0) {
+          const rect = row.getBoundingClientRect();
+          const before = e.clientY < rect.top + rect.height / 2;
+          return { kind, slot: before ? idx : idx + 1 };
+        }
+      }
+    }
+    const section = hit?.closest('[data-list-section]') as HTMLElement | null;
+    if (section) {
+      const kind = section.dataset.listSection as ListKind | undefined;
+      if (kind === 'task' || kind === 'focus' || kind === 'upcoming') {
+        return { kind, slot: listItemsFor(kind).length };
+      }
+    }
+    return null;
   }
 
   function toggleEmojiDropdown(taskId: number, ev: MouseEvent) {
@@ -335,8 +352,9 @@
   function resetReorderState() {
     pendingPointer = null;
     reorderActive = false;
-    reorderListKind = null;
+    reorderSourceKind = null;
     reorderSourceId = null;
+    reorderTargetKind = null;
     reorderInsertSlot = null;
   }
 
@@ -353,8 +371,9 @@
       const dy = e.clientY - pendingPointer.y;
       if (Math.hypot(dx, dy) < REORDER_THRESHOLD_PX) return;
       reorderActive = true;
-      reorderListKind = pendingPointer.kind;
+      reorderSourceKind = pendingPointer.kind;
       reorderSourceId = pendingPointer.entityId;
+      reorderTargetKind = pendingPointer.kind;
       reorderInsertSlot = null;
       el.setPointerCapture(e.pointerId);
     }
@@ -364,42 +383,65 @@
     e.preventDefault();
     getSelection()?.removeAllRanges();
     const src = reorderSourceId;
-    const kind = reorderListKind;
-    if (src == null || kind == null) return;
-    const rawSlot = pointerEventToInsertSlot(e, kind);
-    if (rawSlot == null) return;
-    const ids = listItemsFor(kind).map((t) => t.id);
-    const next = orderIdsWithInsert(ids, src, rawSlot);
-    if (sameIdOrder(ids, next)) {
-      reorderInsertSlot = null;
+    const srcKind = reorderSourceKind;
+    if (src == null || srcKind == null) return;
+    const target = pointerEventToTarget(e);
+    if (!target) return;
+    reorderTargetKind = target.kind;
+    if (target.kind === srcKind) {
+      const ids = listItemsFor(srcKind).map((t) => t.id);
+      const next = orderIdsWithInsert(ids, src, target.slot);
+      reorderInsertSlot = sameIdOrder(ids, next) ? null : target.slot;
     } else {
-      reorderInsertSlot = rawSlot;
+      reorderInsertSlot = target.slot;
     }
   }
 
-  function handleReorderPointerUp(el: HTMLElement, e: PointerEvent) {
+  async function handleReorderPointerUp(el: HTMLElement, e: PointerEvent) {
     if (pendingPointer && e.pointerId !== pendingPointer.pointerId) return;
 
     if (reorderActive) {
       const src = reorderSourceId;
       const slot = reorderInsertSlot;
-      const kind = reorderListKind;
-      if (src != null && slot != null && kind != null) {
-        const ids = listItemsFor(kind).map((t) => t.id);
-        const next = orderIdsWithInsert(ids, src, slot);
-        if (!sameIdOrder(ids, next)) {
-          const persist =
-            kind === 'task'
-              ? reorderTasksForDate(data.date, next)
-              : reorderDayEntries(data.date, kind, next);
-          persist.then(() => invalidateAll());
-          ignoreClickAfterDrag = true;
-        }
-      }
+      const srcKind = reorderSourceKind;
+      const tgtKind = reorderTargetKind;
       try {
         el.releasePointerCapture(e.pointerId);
       } catch {
         /* not capturing */
+      }
+      if (src != null && slot != null && srcKind != null && tgtKind != null) {
+        if (srcKind === tgtKind) {
+          const ids = listItemsFor(srcKind).map((t) => t.id);
+          const next = orderIdsWithInsert(ids, src, slot);
+          if (!sameIdOrder(ids, next)) {
+            const persist =
+              srcKind === 'task'
+                ? reorderTasksForDate(data.date, next)
+                : reorderDayEntries(data.date, srcKind, next);
+            persist.then(() => invalidateAll());
+            ignoreClickAfterDrag = true;
+          }
+        } else {
+          let emojiForLog: string | null = null;
+          if (tgtKind === 'task') {
+            const srcItem = listItemsFor(srcKind).find((x) => x.id === src);
+            const content = srcItem?.content ?? '';
+            emojiForLog =
+              tryAutoAssignEmoji(content, emojiRules) ?? (await getCompletedDefaultEmojiSetting());
+          }
+          const newId = await moveItemBetweenLists(data.date, srcKind, src, tgtKind, emojiForLog);
+          const targetIds = listItemsFor(tgtKind).map((x) => x.id);
+          const pos = Math.max(0, Math.min(slot, targetIds.length));
+          targetIds.splice(pos, 0, newId);
+          if (tgtKind === 'task') {
+            await reorderTasksForDate(data.date, targetIds);
+          } else {
+            await reorderDayEntries(data.date, tgtKind, targetIds);
+          }
+          await invalidateAll();
+          ignoreClickAfterDrag = true;
+        }
       }
     }
     resetReorderState();
@@ -729,24 +771,30 @@
   <section
     class="flex-1 min-h-0 overflow-auto p-2"
   >
-    <div class="pb-2">
+    <div class="pb-2" data-list-section="focus">
       <div class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Focus</div>
       <ul class="space-y-1 overflow-visible">
+        {#if reorderActive && reorderTargetKind === 'focus' && focusEntries.length === 0 && reorderInsertSlot === 0}
+          <li
+            class="pointer-events-none relative h-0.5 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
+            aria-hidden="true"
+          ></li>
+        {/if}
         {#each focusEntries as entry, i (entry.id)}
           <li
             data-row-list="focus"
             data-row-id={entry.id}
-            class="flex items-start gap-2 group relative rounded overflow-visible {reorderListKind === 'focus' && reorderSourceId === entry.id
+            class="flex items-start gap-2 group relative rounded overflow-visible {reorderSourceKind === 'focus' && reorderSourceId === entry.id
               ? 'opacity-50'
               : ''}"
           >
-            {#if reorderActive && reorderListKind === 'focus' && reorderInsertSlot === i}
+            {#if reorderActive && reorderTargetKind === 'focus' && reorderInsertSlot === i}
               <div
                 class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-0.5 -translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
                 aria-hidden="true"
               ></div>
             {/if}
-            {#if reorderActive && reorderListKind === 'focus' && reorderInsertSlot === focusEntries.length && i === focusEntries.length - 1}
+            {#if reorderActive && reorderTargetKind === 'focus' && reorderInsertSlot === focusEntries.length && i === focusEntries.length - 1}
               <div
                 class="pointer-events-none absolute left-0 right-0 bottom-0 z-10 h-0.5 translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
                 aria-hidden="true"
@@ -835,24 +883,30 @@
       class="my-4 border-t border-gray-300 dark:border-gray-700"
       aria-hidden="true"
     ></div>
-    <div class="pt-2">
+    <div class="pt-2" data-list-section="task">
       <div class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Log</div>
     <ul class="space-y-1 overflow-visible">
+      {#if reorderActive && reorderTargetKind === 'task' && tasks.length === 0 && reorderInsertSlot === 0}
+        <li
+          class="pointer-events-none relative h-0.5 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
+          aria-hidden="true"
+        ></li>
+      {/if}
       {#each tasks as task, i (task.id)}
         <li
           data-row-list="task"
           data-row-id={task.id}
-          class="flex items-start gap-2 group relative rounded overflow-visible {reorderListKind === 'task' && reorderSourceId === task.id
+          class="flex items-start gap-2 group relative rounded overflow-visible {reorderSourceKind === 'task' && reorderSourceId === task.id
             ? 'opacity-50'
             : ''}"
         >
-          {#if reorderActive && reorderListKind === 'task' && reorderInsertSlot === i}
+          {#if reorderActive && reorderTargetKind === 'task' && reorderInsertSlot === i}
             <div
               class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-0.5 -translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
               aria-hidden="true"
             ></div>
           {/if}
-          {#if reorderActive && reorderListKind === 'task' && reorderInsertSlot === tasks.length && i === tasks.length - 1}
+          {#if reorderActive && reorderTargetKind === 'task' && reorderInsertSlot === tasks.length && i === tasks.length - 1}
             <div
               class="pointer-events-none absolute left-0 right-0 bottom-0 z-10 h-0.5 translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
               aria-hidden="true"
@@ -1013,24 +1067,30 @@
       class="my-4 border-t border-gray-300 dark:border-gray-700"
       aria-hidden="true"
     ></div>
-    <div class="pt-2">
+    <div class="pt-2" data-list-section="upcoming">
       <div class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Upcoming</div>
       <ul class="space-y-1 overflow-visible">
+        {#if reorderActive && reorderTargetKind === 'upcoming' && upcomingEntries.length === 0 && reorderInsertSlot === 0}
+          <li
+            class="pointer-events-none relative h-0.5 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
+            aria-hidden="true"
+          ></li>
+        {/if}
         {#each upcomingEntries as entry, i (entry.id)}
           <li
             data-row-list="upcoming"
             data-row-id={entry.id}
-            class="flex items-start gap-2 group relative rounded overflow-visible {reorderListKind === 'upcoming' && reorderSourceId === entry.id
+            class="flex items-start gap-2 group relative rounded overflow-visible {reorderSourceKind === 'upcoming' && reorderSourceId === entry.id
               ? 'opacity-50'
               : ''}"
           >
-            {#if reorderActive && reorderListKind === 'upcoming' && reorderInsertSlot === i}
+            {#if reorderActive && reorderTargetKind === 'upcoming' && reorderInsertSlot === i}
               <div
                 class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-0.5 -translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
                 aria-hidden="true"
               ></div>
             {/if}
-            {#if reorderActive && reorderListKind === 'upcoming' && reorderInsertSlot === upcomingEntries.length && i === upcomingEntries.length - 1}
+            {#if reorderActive && reorderTargetKind === 'upcoming' && reorderInsertSlot === upcomingEntries.length && i === upcomingEntries.length - 1}
               <div
                 class="pointer-events-none absolute left-0 right-0 bottom-0 z-10 h-0.5 translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
                 aria-hidden="true"

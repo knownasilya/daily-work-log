@@ -49,6 +49,8 @@ export interface DayEntry {
   sort_order: number;
 }
 
+export type ListKind = 'task' | 'focus' | 'upcoming';
+
 type AppSettingRow = { key: string; value: string };
 
 export async function getAppSetting(key: string): Promise<string | null> {
@@ -396,6 +398,63 @@ export async function completeFocusEntry(entryId: number, emojiId: string | null
   const entry = mapDayEntryRow(rows[0]);
   await addTask(entry.date, entry.content, emojiId);
   await deleteDayEntry(entryId);
+}
+
+/**
+ * Move a single item from one list to another for the same date.
+ * Returns the new id in the destination storage (same id when staying in
+ * day_entries, new id when crossing tables). Caller should then call
+ * reorderTasksForDate or reorderDayEntries to position the new id.
+ *
+ * `emojiForLog` is used only when destination is 'task'; the caller resolves
+ * it the same way completeFocusEntry's caller does.
+ */
+export async function moveItemBetweenLists(
+  date: string,
+  sourceKind: ListKind,
+  sourceId: number,
+  targetKind: ListKind,
+  emojiForLog: string | null
+): Promise<number> {
+  if (sourceKind === targetKind) return sourceId;
+  const db = await getDb();
+
+  if (sourceKind === 'task') {
+    const rows = await db.select<Record<string, unknown>[]>(
+      'SELECT * FROM work_log_entries WHERE id = $1 LIMIT 1',
+      [sourceId]
+    );
+    if (!Array.isArray(rows) || rows.length === 0) return sourceId;
+    const content = String(rows[0].content);
+    const newId = await addDayEntry(date, targetKind as 'focus' | 'upcoming', content);
+    await deleteTask(sourceId);
+    return newId;
+  }
+
+  if (targetKind === 'task') {
+    const rows = await db.select<Record<string, unknown>[]>(
+      'SELECT * FROM day_entries WHERE id = $1 LIMIT 1',
+      [sourceId]
+    );
+    if (!Array.isArray(rows) || rows.length === 0) return sourceId;
+    const entry = mapDayEntryRow(rows[0]);
+    const newId = await addTask(entry.date, entry.content, emojiForLog);
+    await deleteDayEntry(sourceId);
+    return newId;
+  }
+
+  // focus <-> upcoming: same table, flip the kind column.
+  const countResult = await db.select<[{ count: number }]>(
+    'SELECT COUNT(*) as count FROM day_entries WHERE date = $1 AND kind = $2',
+    [date, targetKind]
+  );
+  const count = Array.isArray(countResult) ? countResult[0]?.count ?? 0 : 0;
+  const sortOrder = typeof count === 'number' ? count : 0;
+  await db.execute(
+    'UPDATE day_entries SET kind = $1, sort_order = $2 WHERE id = $3',
+    [targetKind, sortOrder, sourceId]
+  );
+  return sourceId;
 }
 
 /** Removes the day row, all work log entries, and all focus/upcoming entries for that calendar date. */
