@@ -15,6 +15,18 @@ export function formatDatePretty(dateStr: string): string {
   }).format(d);
 }
 
+/**
+ * Splits selected markdown into one entry per non-blank line, stripping a leading
+ * list marker (`-`, `*`, `+`, or `1.` / `1)`) and any indentation. Lines without a
+ * marker are still included (trimmed); blank lines are dropped.
+ */
+export function parseMarkdownListItems(text: string): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').trim())
+    .filter((line) => line.length > 0);
+}
+
 export function isValidDateStr(s: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!match) return false;

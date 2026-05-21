@@ -25,6 +25,12 @@
     id?: string;
     /** When provided, enables `@` mention autocomplete. */
     mentions?: string[];
+    /**
+     * When provided, right-clicking on a non-empty selection calls this with the
+     * selected text and the pointer position (instead of the native menu). Used to
+     * offer actions like converting selected note lines into log entries.
+     */
+    onSelectionContextMenu?: (info: { text: string; x: number; y: number }) => void;
   }
 
   let {
@@ -40,6 +46,7 @@
     resyncKey = '',
     id,
     mentions,
+    onSelectionContextMenu,
   }: Props = $props();
 
   let editing = $state(false);
@@ -183,6 +190,28 @@
   }
 
   /**
+   * Resolve the currently selected text, preferring the textarea's own range
+   * (edit mode) and falling back to the window selection (rendered view mode).
+   */
+  function getSelectedText(): string {
+    const ta = textareaEl;
+    if (ta && document.activeElement === ta) {
+      const start = ta.selectionStart ?? 0;
+      const end = ta.selectionEnd ?? 0;
+      if (start !== end) return ta.value.slice(start, end);
+    }
+    return document.getSelection()?.toString() ?? '';
+  }
+
+  function handleContextMenu(e: MouseEvent) {
+    if (!onSelectionContextMenu) return; // no handler: leave native behavior alone
+    const text = getSelectedText();
+    if (!text.trim()) return; // nothing selected: don't intercept
+    e.preventDefault();
+    onSelectionContextMenu({ text, x: e.clientX, y: e.clientY });
+  }
+
+  /**
    * Walk the rendered div's DOM and count plain-text characters up to targetNode/targetOffset.
    * Text nodes contribute their length; <br> contributes 1 (\n); elements recurse.
    * Elements with `data-source-length` (rendered links) are opaque — they contribute
@@ -262,6 +291,7 @@
   }
 
   function handleRenderedPointerDown(e: MouseEvent) {
+    if (e.button !== 0) return; // leave right/middle-click selection intact
     if ((e.target as HTMLElement).closest('a')) return;
     const div = e.currentTarget as HTMLElement;
     const range = document.caretRangeFromPoint?.(e.clientX, e.clientY);
@@ -269,6 +299,7 @@
   }
 
   function handleRenderedPointerUp(e: MouseEvent) {
+    if (e.button !== 0) return; // right-click is handled by the context menu
     const url = (e.target as HTMLElement).closest('a')?.getAttribute('data-url');
     if (url) {
       e.preventDefault();
@@ -340,7 +371,7 @@
   never shifts when toggling between edit and view modes. opacity + pointer-events
   are used to show/hide instead of mounting/unmounting.
 -->
-<div class="grid {wrapperClass}">
+<div class="grid {wrapperClass}" oncontextmenu={handleContextMenu} role="presentation">
   {#if resync}
     <textarea
       {id}

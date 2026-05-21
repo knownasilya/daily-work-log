@@ -28,7 +28,7 @@
     getIncompleteFocusDefaultEmojiSetting,
   } from '$lib/api/db';
   import { writeText as clipboardWriteText } from '@tauri-apps/plugin-clipboard-manager';
-  import { formatDatePretty } from '$lib/utils';
+  import { formatDatePretty, parseMarkdownListItems } from '$lib/utils';
   import { formatLineForSlack, tryAutoAssignEmoji } from '$lib/emoji';
   import { toYYYYMMDD } from '$lib/utils';
   import NavDrawer from '$lib/components/NavDrawer.svelte';
@@ -85,6 +85,11 @@
     top: 0,
     maxWidthPx: 280,
   });
+  let noteMenuOpen = $state(false);
+  let noteMenuPos = $state<{ left: number; top: number }>({ left: 0, top: 0 });
+  let noteMenuItems = $state<string[]>([]);
+  let logItemMenu = $state<{ taskId: number; left: number; top: number } | null>(null);
+  let copiedToTodayFeedback = $state(false);
   let dayHeaderMenuOpen = $state(false);
   let dayHeaderMenuPos = $state<EntryMenuPlacement>({
     kind: 'below',
@@ -240,6 +245,70 @@
     const trimmed = value.trim();
     await updateDayNote(data.date, trimmed ? trimmed : null);
     if (trimmed) await syncMentionsFromText(trimmed);
+    await invalidateAll();
+  }
+
+  /** Right-click on a note selection: offer to copy the list items into the Log. */
+  function handleNoteSelectionContextMenu(info: { text: string; x: number; y: number }) {
+    const items = parseMarkdownListItems(info.text);
+    if (items.length === 0) return;
+    dayHeaderMenuOpen = false;
+    emojiDropdownOpen = null;
+    entryMenuOpen = null;
+    focusMenuOpen = null;
+    upcomingMenuOpen = null;
+    noteMenuItems = items;
+    const estW = 220;
+    const estH = 44;
+    const pad = 8;
+    noteMenuPos = {
+      left: Math.min(info.x, window.innerWidth - estW - pad),
+      top: Math.min(info.y, window.innerHeight - estH - pad),
+    };
+    noteMenuOpen = true;
+  }
+
+  async function addNoteItemsToLog() {
+    const items = noteMenuItems;
+    noteMenuOpen = false;
+    if (items.length === 0) return;
+    for (const content of items) {
+      const emojiId = tryAutoAssignEmoji(content, emojiRules);
+      await addTask(data.date, content, emojiId);
+      await syncMentionsFromText(content);
+    }
+    noteMenuItems = [];
+    await invalidateAll();
+  }
+
+  /** Right-click on a log item: the same actions as the kebab menu, plus "Copy to today" on past days. */
+  function handleLogItemContextMenu(taskId: number, ev: MouseEvent) {
+    ev.preventDefault();
+    dayHeaderMenuOpen = false;
+    emojiDropdownOpen = null;
+    entryMenuOpen = null;
+    focusMenuOpen = null;
+    upcomingMenuOpen = null;
+    noteMenuOpen = false;
+    const estW = 200;
+    const estH = 130;
+    const pad = 8;
+    logItemMenu = {
+      taskId,
+      left: Math.min(ev.clientX, window.innerWidth - estW - pad),
+      top: Math.min(ev.clientY, window.innerHeight - estH - pad),
+    };
+  }
+
+  async function copyTaskToToday(taskId: number) {
+    logItemMenu = null;
+    entryMenuOpen = null;
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    await addTask(toYYYYMMDD(new Date()), task.content, task.emoji_id);
+    await syncMentionsFromText(task.content);
+    copiedToTodayFeedback = true;
+    setTimeout(() => (copiedToTodayFeedback = false), 1500);
     await invalidateAll();
   }
 
@@ -896,6 +965,7 @@
         <li
           data-row-list="task"
           data-row-id={task.id}
+          oncontextmenu={(e) => handleLogItemContextMenu(task.id, e)}
           class="flex items-start gap-2 group relative rounded overflow-visible {reorderSourceKind === 'task' && reorderSourceId === task.id
             ? 'opacity-50'
             : ''}"
@@ -1028,6 +1098,16 @@
               onclick={(e) => e.stopPropagation()}
               onkeydown={(e) => e.stopPropagation()}
             >
+              {#if !data.isToday}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onclick={() => copyTaskToToday(task.id)}
+                  class="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  Copy to today
+                </button>
+              {/if}
               <button
                 type="button"
                 role="menuitem"
@@ -1227,6 +1307,7 @@
         resyncKey={JSON.stringify([data.date, data.dayRow?.note ?? ''])}
         wrapperClass="w-full"
         {mentions}
+        onSelectionContextMenu={handleNoteSelectionContextMenu}
         class="text-sm px-2 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 resize-none"
       />
     </div>
@@ -1278,7 +1359,78 @@
   </footer>
 </div>
 
-{#if emojiDropdownOpen !== null || upcomingEmojiDropdownOpen !== null || entryMenuOpen !== null || focusMenuOpen !== null || upcomingMenuOpen !== null || dayHeaderMenuOpen}
+{#if noteMenuOpen}
+  <div
+    role="menu"
+    tabindex="-1"
+    class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded shadow-lg py-1 min-w-[180px] w-max text-left"
+    style:left="{noteMenuPos.left}px"
+    style:top="{noteMenuPos.top}px"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+  >
+    <button
+      type="button"
+      role="menuitem"
+      onclick={addNoteItemsToLog}
+      class="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+    >
+      Add {noteMenuItems.length} {noteMenuItems.length === 1 ? 'item' : 'items'} to Log
+    </button>
+  </div>
+{/if}
+
+{#if logItemMenu}
+  {@const menuTask = tasks.find((t) => t.id === logItemMenu!.taskId)}
+  <div
+    role="menu"
+    tabindex="-1"
+    class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded shadow-lg py-1 min-w-[180px] w-max text-left"
+    style:left="{logItemMenu.left}px"
+    style:top="{logItemMenu.top}px"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+  >
+    {#if !data.isToday}
+      <button
+        type="button"
+        role="menuitem"
+        onclick={() => copyTaskToToday(logItemMenu!.taskId)}
+        class="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+      >
+        Copy to today
+      </button>
+    {/if}
+    {#if menuTask}
+      <button
+        type="button"
+        role="menuitem"
+        onclick={() => {
+          const t = menuTask;
+          logItemMenu = null;
+          handleTogglePinned(t.id, !t.pinned);
+        }}
+        class="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+      >
+        {menuTask.pinned ? 'Unpin' : 'Pin'}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        onclick={() => {
+          const id = menuTask.id;
+          logItemMenu = null;
+          handleDelete(id);
+        }}
+        class="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
+      >
+        Delete
+      </button>
+    {/if}
+  </div>
+{/if}
+
+{#if emojiDropdownOpen !== null || upcomingEmojiDropdownOpen !== null || entryMenuOpen !== null || focusMenuOpen !== null || upcomingMenuOpen !== null || dayHeaderMenuOpen || noteMenuOpen || logItemMenu}
   <button
     type="button"
     class="fixed inset-0 z-40"
@@ -1290,8 +1442,19 @@
       focusMenuOpen = null;
       upcomingMenuOpen = null;
       dayHeaderMenuOpen = false;
+      noteMenuOpen = false;
+      logItemMenu = null;
     }}
   ></button>
+{/if}
+
+{#if copiedToTodayFeedback}
+  <div
+    role="status"
+    class="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded bg-gray-800 text-white text-xs shadow-lg dark:bg-gray-700"
+  >
+    Copied to today
+  </div>
 {/if}
 
 <NavDrawer open={drawerOpen} onclose={closeDrawer} />
