@@ -23,6 +23,7 @@
     reorderDayEntries,
     completeFocusEntry,
     moveItemBetweenLists,
+    moveAllFocusToUpcoming,
     getUpcomingDefaultEmojiSetting,
     getCompletedDefaultEmojiSetting,
     getIncompleteFocusDefaultEmojiSetting,
@@ -580,6 +581,12 @@
     updateTask(id, { pinned }).then(() => invalidateAll());
   }
 
+  async function handleMoveAllFocusToUpcoming() {
+    if (focusEntries.length === 0) return;
+    await moveAllFocusToUpcoming(data.date);
+    await invalidateAll();
+  }
+
   async function handleAddFocus() {
     const content = newFocus.trim();
     if (!content) return;
@@ -856,7 +863,19 @@
     class="flex-1 min-h-0 overflow-auto p-2"
   >
     <div class="pb-2" data-list-section="focus">
-      <div class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Focus</div>
+      <div class="flex items-center justify-between mb-1">
+        <div class="text-xs font-medium text-gray-600 dark:text-gray-400">Focus</div>
+        {#if data.focusCarryMode === 'manual' && focusEntries.length > 0}
+          <button
+            type="button"
+            onclick={handleMoveAllFocusToUpcoming}
+            class="text-xs py-0.5 px-1.5 rounded text-gray-500 hover:text-gray-800 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-700"
+            title="Move all focus items to Upcoming"
+          >
+            Move all to upcoming
+          </button>
+        {/if}
+      </div>
       <ul class="space-y-1 overflow-visible">
         {#if reorderActive && reorderTargetKind === 'focus' && focusEntries.length === 0 && reorderInsertSlot === 0}
           <li

@@ -74,6 +74,23 @@ export async function getAlwaysOnTopSetting(): Promise<boolean> {
   return raw === '1' || raw.toLowerCase() === 'true';
 }
 
+export type FocusCarryMode = 'auto' | 'manual';
+
+/**
+ * How unfinished focus items transition to a new day.
+ * 'auto' (default): previous day's focus and upcoming both seed the new day's focus.
+ * 'manual': only the previous day's upcoming seeds the new focus; the user moves
+ * leftover focus into upcoming themselves via the focus header button.
+ */
+export async function getFocusCarryModeSetting(): Promise<FocusCarryMode> {
+  const raw = await getAppSetting('focus_carry_mode');
+  return raw === 'manual' ? 'manual' : 'auto';
+}
+
+export async function setFocusCarryModeSetting(mode: FocusCarryMode): Promise<void> {
+  await setAppSetting('focus_carry_mode', mode);
+}
+
 export async function getExcludeFocusFromCopySetting(): Promise<boolean> {
   const raw = await getAppSetting('exclude_focus_from_copy');
   if (!raw) return false;
@@ -221,21 +238,30 @@ async function copyPinnedEntriesToNewDay(sourceDate: string, targetDate: string)
 
 /**
  * Seeds the new day's focus list with:
- * 1. remaining (uncompleted) focus entries from the source day, at the top
- * 2. upcoming entries from the source day, after the carried-over focus
+ * 1. (auto mode only) remaining (uncompleted) focus entries from the source day, at the top
+ * 2. upcoming entries from the source day, after any carried-over focus
+ *
+ * In 'manual' mode the focus carry-over is skipped; the user moves leftover focus
+ * into upcoming themselves, so only the source day's upcoming seeds the new focus.
  */
 async function seedFocusForNewDay(sourceDate: string, targetDate: string): Promise<void> {
   const db = await getDb();
-  const focusRows = await db.select<Record<string, unknown>[]>(
-    "SELECT content FROM day_entries WHERE date = $1 AND kind = 'focus' ORDER BY sort_order, id",
-    [sourceDate]
-  );
-  const focus = Array.isArray(focusRows) ? focusRows : [];
-  for (let i = 0; i < focus.length; i++) {
-    await db.execute(
-      "INSERT INTO day_entries (date, kind, content, sort_order) VALUES ($1, 'focus', $2, $3)",
-      [targetDate, String(focus[i].content), i]
+  const mode = await getFocusCarryModeSetting();
+  let sortOrder = 0;
+
+  if (mode === 'auto') {
+    const focusRows = await db.select<Record<string, unknown>[]>(
+      "SELECT content FROM day_entries WHERE date = $1 AND kind = 'focus' ORDER BY sort_order, id",
+      [sourceDate]
     );
+    const focus = Array.isArray(focusRows) ? focusRows : [];
+    for (const row of focus) {
+      await db.execute(
+        "INSERT INTO day_entries (date, kind, content, sort_order) VALUES ($1, 'focus', $2, $3)",
+        [targetDate, String(row.content), sortOrder]
+      );
+      sortOrder += 1;
+    }
   }
 
   const upcomingRows = await db.select<Record<string, unknown>[]>(
@@ -243,11 +269,36 @@ async function seedFocusForNewDay(sourceDate: string, targetDate: string): Promi
     [sourceDate]
   );
   const upcoming = Array.isArray(upcomingRows) ? upcomingRows : [];
-  for (let i = 0; i < upcoming.length; i++) {
+  for (const row of upcoming) {
     await db.execute(
       "INSERT INTO day_entries (date, kind, content, sort_order) VALUES ($1, 'focus', $2, $3)",
-      [targetDate, String(upcoming[i].content), focus.length + i]
+      [targetDate, String(row.content), sortOrder]
     );
+    sortOrder += 1;
+  }
+}
+
+/** Moves every focus entry for `date` into its upcoming list, appended after existing upcoming. */
+export async function moveAllFocusToUpcoming(date: string): Promise<void> {
+  const db = await getDb();
+  const focusRows = await db.select<Record<string, unknown>[]>(
+    "SELECT id FROM day_entries WHERE date = $1 AND kind = 'focus' ORDER BY sort_order, id",
+    [date]
+  );
+  const focus = Array.isArray(focusRows) ? focusRows : [];
+  if (focus.length === 0) return;
+
+  const countResult = await db.select<[{ count: number }]>(
+    "SELECT COUNT(*) as count FROM day_entries WHERE date = $1 AND kind = 'upcoming'",
+    [date]
+  );
+  let sortOrder = Array.isArray(countResult) ? Number(countResult[0]?.count ?? 0) : 0;
+  for (const row of focus) {
+    await db.execute(
+      "UPDATE day_entries SET kind = 'upcoming', sort_order = $1 WHERE id = $2",
+      [sortOrder, Number(row.id)]
+    );
+    sortOrder += 1;
   }
 }
 

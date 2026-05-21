@@ -20,6 +20,9 @@
     setIncompleteFocusDefaultEmojiSetting,
     getExcludeFocusFromCopySetting,
     setExcludeFocusFromCopySetting,
+    getFocusCarryModeSetting,
+    setFocusCarryModeSetting,
+    type FocusCarryMode,
     getMentions,
     setMentions,
     addMentionsIfMissing,
@@ -37,6 +40,7 @@
   let completedDefaultEmojiId = $state<string | null>(null);
   let incompleteFocusDefaultEmojiId = $state<string | null>(null);
   let excludeFocusFromCopy = $state(false);
+  let focusCarryMode = $state<FocusCarryMode>('auto');
   let weeklyExcludedIds = $state<Set<string>>(new Set());
   let labeledRules = $derived(rules.filter((r) => r.label?.trim()));
   let rulesById = $derived(new Map(rules.map((r) => [r.id, r])));
@@ -400,6 +404,11 @@
     await setExcludeFocusFromCopySetting(excludeFocusFromCopy);
   }
 
+  async function saveFocusCarryMode(value: string) {
+    focusCarryMode = value === 'manual' ? 'manual' : 'auto';
+    await setFocusCarryModeSetting(focusCarryMode);
+  }
+
   function deleteRule(id: string) {
     if (editingRuleId === id) cancelEdit();
     deleteEmojiRule(id).then(() => {
@@ -449,6 +458,7 @@
     getCompletedDefaultEmojiSetting().then((id) => (completedDefaultEmojiId = id));
     getIncompleteFocusDefaultEmojiSetting().then((id) => (incompleteFocusDefaultEmojiId = id));
     getExcludeFocusFromCopySetting().then((v) => (excludeFocusFromCopy = v));
+    getFocusCarryModeSetting().then((m) => (focusCarryMode = m));
     getWeeklyExcludedEmojisSetting().then((ids) => (weeklyExcludedIds = new Set(ids)));
     getMentions().then((m) => (mentions = m));
   });
@@ -540,6 +550,20 @@
       <section class="space-y-3">
         <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Focus</h2>
         <div class="space-y-2">
+          <div>
+            <label for="focus-carry-mode" class="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Unfinished focus items when starting a new day
+            </label>
+            <select
+              id="focus-carry-mode"
+              value={focusCarryMode}
+              onchange={(e) => saveFocusCarryMode((e.currentTarget as HTMLSelectElement).value)}
+              class="text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+            >
+              <option value="auto">Auto-carry to the new day's focus</option>
+              <option value="manual">Move manually (button in focus header)</option>
+            </select>
+          </div>
           <div>
             <label for="completed-default-emoji" class="block text-xs text-gray-500 dark:text-gray-400 mb-1">
               Default emoji when completed (no pattern match)
