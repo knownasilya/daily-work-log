@@ -406,15 +406,17 @@ export async function completeFocusEntry(entryId: number, emojiId: string | null
  * day_entries, new id when crossing tables). Caller should then call
  * reorderTasksForDate or reorderDayEntries to position the new id.
  *
- * `emojiForLog` is used only when destination is 'task'; the caller resolves
- * it the same way completeFocusEntry's caller does.
+ * `emojiForDestination` is applied to the new entry: when the destination is
+ * 'task' (the caller resolves it like completeFocusEntry's caller does) and,
+ * when non-null, when the destination is 'upcoming' (carries an emoji across).
+ * A null with an 'upcoming' destination lets the upcoming default apply.
  */
 export async function moveItemBetweenLists(
   date: string,
   sourceKind: ListKind,
   sourceId: number,
   targetKind: ListKind,
-  emojiForLog: string | null
+  emojiForDestination: string | null
 ): Promise<number> {
   if (sourceKind === targetKind) return sourceId;
   const db = await getDb();
@@ -426,7 +428,10 @@ export async function moveItemBetweenLists(
     );
     if (!Array.isArray(rows) || rows.length === 0) return sourceId;
     const content = String(rows[0].content);
-    const newId = await addDayEntry(date, targetKind as 'focus' | 'upcoming', content);
+    const newId =
+      targetKind === 'upcoming' && emojiForDestination != null
+        ? await addDayEntry(date, 'upcoming', content, emojiForDestination)
+        : await addDayEntry(date, targetKind as 'focus' | 'upcoming', content);
     await deleteTask(sourceId);
     return newId;
   }
@@ -438,7 +443,7 @@ export async function moveItemBetweenLists(
     );
     if (!Array.isArray(rows) || rows.length === 0) return sourceId;
     const entry = mapDayEntryRow(rows[0]);
-    const newId = await addTask(entry.date, entry.content, emojiForLog);
+    const newId = await addTask(entry.date, entry.content, emojiForDestination);
     await deleteDayEntry(sourceId);
     return newId;
   }

@@ -492,14 +492,26 @@
             ignoreClickAfterDrag = true;
           }
         } else {
-          let emojiForLog: string | null = null;
+          const srcItem = listItemsFor(srcKind).find((x) => x.id === src);
+          let emojiForDestination: string | null = null;
           if (tgtKind === 'task') {
-            const srcItem = listItemsFor(srcKind).find((x) => x.id === src);
             const content = srcItem?.content ?? '';
-            emojiForLog =
-              tryAutoAssignEmoji(content, emojiRules) ?? (await getCompletedDefaultEmojiSetting());
+            // An upcoming item with an emoji the user picked (i.e. not the upcoming
+            // default) carries that emoji into the log; otherwise fall back as before.
+            let keptEmoji: string | null = null;
+            if (srcKind === 'upcoming' && srcItem?.emoji_id) {
+              const upcomingDefault = await getUpcomingDefaultEmojiSetting();
+              if (srcItem.emoji_id !== upcomingDefault) keptEmoji = srcItem.emoji_id;
+            }
+            emojiForDestination =
+              keptEmoji ??
+              tryAutoAssignEmoji(content, emojiRules) ??
+              (await getCompletedDefaultEmojiSetting());
+          } else if (srcKind === 'task' && tgtKind === 'upcoming') {
+            // Carry the log item's emoji into upcoming; null lets the upcoming default apply.
+            emojiForDestination = srcItem?.emoji_id ?? null;
           }
-          const newId = await moveItemBetweenLists(data.date, srcKind, src, tgtKind, emojiForLog);
+          const newId = await moveItemBetweenLists(data.date, srcKind, src, tgtKind, emojiForDestination);
           const targetIds = listItemsFor(tgtKind).map((x) => x.id);
           const pos = Math.max(0, Math.min(slot, targetIds.length));
           targetIds.splice(pos, 0, newId);
