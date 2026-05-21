@@ -23,6 +23,12 @@
     getFocusCarryModeSetting,
     setFocusCarryModeSetting,
     type FocusCarryMode,
+    getCustomSections,
+    addCustomSection,
+    updateCustomSection,
+    deleteCustomSection,
+    reorderCustomSections,
+    type CustomSection,
     getMentions,
     setMentions,
     addMentionsIfMissing,
@@ -41,6 +47,8 @@
   let incompleteFocusDefaultEmojiId = $state<string | null>(null);
   let excludeFocusFromCopy = $state(false);
   let focusCarryMode = $state<FocusCarryMode>('auto');
+  let customSections = $state<CustomSection[]>([]);
+  let newSectionName = $state('');
   let weeklyExcludedIds = $state<Set<string>>(new Set());
   let labeledRules = $derived(rules.filter((r) => r.label?.trim()));
   let rulesById = $derived(new Map(rules.map((r) => [r.id, r])));
@@ -409,6 +417,59 @@
     await setFocusCarryModeSetting(focusCarryMode);
   }
 
+  async function addSection() {
+    const name = newSectionName.trim();
+    if (!name) return;
+    await addCustomSection(name);
+    newSectionName = '';
+    customSections = await getCustomSections();
+  }
+
+  async function renameSection(id: number, name: string) {
+    customSections = customSections.map((s) => (s.id === id ? { ...s, name } : s));
+    await updateCustomSection(id, { name });
+  }
+
+  async function toggleSectionCopyToNewDay(id: number, value: boolean) {
+    customSections = customSections.map((s) => (s.id === id ? { ...s, copy_to_new_day: value } : s));
+    await updateCustomSection(id, { copy_to_new_day: value });
+  }
+
+  async function toggleSectionIncludeInCopy(id: number, value: boolean) {
+    customSections = customSections.map((s) =>
+      s.id === id ? { ...s, include_in_task_copy: value } : s
+    );
+    await updateCustomSection(id, { include_in_task_copy: value });
+  }
+
+  async function removeSection(id: number) {
+    const section = customSections.find((s) => s.id === id);
+    const message = section
+      ? `Delete the "${section.name}" section? Its entries on every day will be removed permanently.`
+      : 'Delete this section?';
+    let confirmed = false;
+    try {
+      const { confirm: confirmDialog } = await import('@tauri-apps/plugin-dialog');
+      confirmed = await confirmDialog(message, { title: 'Delete section', kind: 'warning' });
+    } catch {
+      confirmed = typeof window !== 'undefined' && window.confirm(message);
+    }
+    if (!confirmed) return;
+    await deleteCustomSection(id);
+    customSections = await getCustomSections();
+  }
+
+  /** Moves a section one slot up (-1) or down (+1) and persists the new order. */
+  async function moveSection(id: number, delta: number) {
+    const index = customSections.findIndex((s) => s.id === id);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= customSections.length) return;
+    const next = [...customSections];
+    [next[index], next[target]] = [next[target], next[index]];
+    customSections = next;
+    await reorderCustomSections(next.map((s) => s.id));
+  }
+
   function deleteRule(id: string) {
     if (editingRuleId === id) cancelEdit();
     deleteEmojiRule(id).then(() => {
@@ -459,6 +520,7 @@
     getIncompleteFocusDefaultEmojiSetting().then((id) => (incompleteFocusDefaultEmojiId = id));
     getExcludeFocusFromCopySetting().then((v) => (excludeFocusFromCopy = v));
     getFocusCarryModeSetting().then((m) => (focusCarryMode = m));
+    getCustomSections().then((s) => (customSections = s));
     getWeeklyExcludedEmojisSetting().then((ids) => (weeklyExcludedIds = new Set(ids)));
     getMentions().then((m) => (mentions = m));
   });
@@ -627,6 +689,98 @@
             />
             Don’t include focus items when copying tasks
           </label>
+        </div>
+      </section>
+
+      <section class="space-y-3">
+        <div>
+          <h2 class="text-xs font-medium text-gray-600 dark:text-gray-400">Sections</h2>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Custom lists shown below Upcoming on each day. Items work like Log items.
+          </p>
+        </div>
+
+        {#if customSections.length > 0}
+          <div class="space-y-2">
+            {#each customSections as section, i (section.id)}
+              <div class="border border-gray-300 dark:border-gray-700 rounded p-2 space-y-2">
+                <div class="flex items-center gap-2">
+                  <div class="flex flex-col">
+                    <button
+                      type="button"
+                      onclick={() => moveSection(section.id, -1)}
+                      disabled={i === 0}
+                      class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:pointer-events-none leading-none"
+                      aria-label="Move section up"
+                      title="Move up"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" /></svg>
+                    </button>
+                    <button
+                      type="button"
+                      onclick={() => moveSection(section.id, 1)}
+                      disabled={i === customSections.length - 1}
+                      class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:pointer-events-none leading-none"
+                      aria-label="Move section down"
+                      title="Move down"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={section.name}
+                    onblur={(e) => renameSection(section.id, (e.currentTarget as HTMLInputElement).value.trim() || section.name)}
+                    class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                    aria-label="Section name"
+                  />
+                  <button
+                    type="button"
+                    onclick={() => removeSection(section.id)}
+                    class="text-sm px-2 py-1 rounded text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 shrink-0"
+                  >
+                    Delete
+                  </button>
+                </div>
+                <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 select-none">
+                  <input
+                    type="checkbox"
+                    checked={section.copy_to_new_day}
+                    onchange={(e) => toggleSectionCopyToNewDay(section.id, (e.currentTarget as HTMLInputElement).checked)}
+                    class="w-4 h-4"
+                  />
+                  Copy entries to a new day
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 select-none">
+                  <input
+                    type="checkbox"
+                    checked={section.include_in_task_copy}
+                    onchange={(e) => toggleSectionIncludeInCopy(section.id, (e.currentTarget as HTMLInputElement).checked)}
+                    class="w-4 h-4"
+                  />
+                  Include when copying tasks
+                </label>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <div class="flex gap-2">
+          <input
+            type="text"
+            bind:value={newSectionName}
+            onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSection(); } }}
+            placeholder="New section name…"
+            class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+          />
+          <button
+            type="button"
+            onclick={addSection}
+            disabled={!newSectionName.trim()}
+            class="text-sm py-1 px-3 bg-blue-600 text-white rounded font-medium disabled:opacity-40 disabled:pointer-events-none"
+          >
+            Add
+          </button>
         </div>
       </section>
 

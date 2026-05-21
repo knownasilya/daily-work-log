@@ -51,6 +51,30 @@ export interface DayEntry {
 
 export type ListKind = 'task' | 'focus' | 'upcoming';
 
+export interface CustomSection {
+  id: number;
+  name: string;
+  copy_to_new_day: boolean;
+  include_in_task_copy: boolean;
+  sort_order: number;
+}
+
+export interface CustomSectionEntry {
+  id: number;
+  section_id: number;
+  date: string;
+  content: string;
+  emoji_id: string | null;
+  sort_order: number;
+}
+
+/** Identifies any list an item can live in: a built-in list or a custom section. */
+export type ListLocation =
+  | { kind: 'task' }
+  | { kind: 'focus' }
+  | { kind: 'upcoming' }
+  | { kind: 'custom'; sectionId: number };
+
 type AppSettingRow = { key: string; value: string };
 
 export async function getAppSetting(key: string): Promise<string | null> {
@@ -192,6 +216,14 @@ export async function ensureDay(day: string): Promise<Day> {
   try {
     if (previousDay) {
       await seedFocusForNewDay(previousDay, day);
+    }
+  } catch {
+    // ignore: carry-forward is best-effort
+  }
+
+  try {
+    if (previousDay) {
+      await copyCustomSectionEntriesToNewDay(previousDay, day);
     }
   } catch {
     // ignore: carry-forward is best-effort
@@ -448,6 +480,173 @@ export async function reorderDayEntries(
   }
 }
 
+// ---- Custom sections ----
+
+export async function getCustomSections(): Promise<CustomSection[]> {
+  const db = await getDb();
+  const rows = await db.select<Record<string, unknown>[]>(
+    'SELECT * FROM custom_sections ORDER BY sort_order, id'
+  );
+  if (!Array.isArray(rows)) return [];
+  return rows.map((r) => ({
+    id: Number(r.id),
+    name: String(r.name),
+    copy_to_new_day: sqlBoolean(r.copy_to_new_day),
+    include_in_task_copy: sqlBoolean(r.include_in_task_copy),
+    sort_order: Number(r.sort_order),
+  }));
+}
+
+export async function addCustomSection(name: string): Promise<number> {
+  const db = await getDb();
+  const countResult = await db.select<[{ count: number }]>(
+    'SELECT COUNT(*) as count FROM custom_sections'
+  );
+  const sortOrder = Array.isArray(countResult) ? Number(countResult[0]?.count ?? 0) : 0;
+  const result = await db.execute(
+    'INSERT INTO custom_sections (name, copy_to_new_day, include_in_task_copy, sort_order) VALUES ($1, 0, 1, $2)',
+    [name, sortOrder]
+  );
+  return result.lastInsertId ?? 0;
+}
+
+export async function updateCustomSection(
+  id: number,
+  updates: { name?: string; copy_to_new_day?: boolean; include_in_task_copy?: boolean }
+): Promise<void> {
+  const db = await getDb();
+  if (updates.name !== undefined) {
+    await db.execute('UPDATE custom_sections SET name = $1 WHERE id = $2', [updates.name, id]);
+  }
+  if (updates.copy_to_new_day !== undefined) {
+    await db.execute('UPDATE custom_sections SET copy_to_new_day = $1 WHERE id = $2', [
+      updates.copy_to_new_day ? 1 : 0,
+      id,
+    ]);
+  }
+  if (updates.include_in_task_copy !== undefined) {
+    await db.execute('UPDATE custom_sections SET include_in_task_copy = $1 WHERE id = $2', [
+      updates.include_in_task_copy ? 1 : 0,
+      id,
+    ]);
+  }
+}
+
+export async function deleteCustomSection(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM custom_section_entries WHERE section_id = $1', [id]);
+  await db.execute('DELETE FROM custom_sections WHERE id = $1', [id]);
+}
+
+export async function reorderCustomSections(orderedIds: number[]): Promise<void> {
+  const db = await getDb();
+  for (let i = 0; i < orderedIds.length; i++) {
+    await db.execute('UPDATE custom_sections SET sort_order = $1 WHERE id = $2', [i, orderedIds[i]]);
+  }
+}
+
+function mapCustomSectionEntryRow(r: Record<string, unknown>): CustomSectionEntry {
+  return {
+    id: Number(r.id),
+    section_id: Number(r.section_id),
+    date: String(r.date),
+    content: String(r.content),
+    emoji_id: r.emoji_id != null ? String(r.emoji_id) : null,
+    sort_order: Number(r.sort_order),
+  };
+}
+
+/** All custom-section entries for a date, across every section (ordered within each section). */
+export async function getCustomSectionEntries(date: string): Promise<CustomSectionEntry[]> {
+  const db = await getDb();
+  const rows = await db.select<Record<string, unknown>[]>(
+    'SELECT * FROM custom_section_entries WHERE date = $1 ORDER BY section_id, sort_order, id',
+    [date]
+  );
+  return Array.isArray(rows) ? rows.map(mapCustomSectionEntryRow) : [];
+}
+
+export async function addCustomSectionEntry(
+  sectionId: number,
+  date: string,
+  content: string,
+  emojiId?: string | null
+): Promise<number> {
+  await ensureDay(date);
+  const db = await getDb();
+  const countResult = await db.select<[{ count: number }]>(
+    'SELECT COUNT(*) as count FROM custom_section_entries WHERE date = $1 AND section_id = $2',
+    [date, sectionId]
+  );
+  const sortOrder = Array.isArray(countResult) ? Number(countResult[0]?.count ?? 0) : 0;
+  const result = await db.execute(
+    'INSERT INTO custom_section_entries (section_id, date, content, emoji_id, sort_order) VALUES ($1, $2, $3, $4, $5)',
+    [sectionId, date, content, emojiId ?? null, sortOrder]
+  );
+  return result.lastInsertId ?? 0;
+}
+
+export async function updateCustomSectionEntryContent(id: number, content: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE custom_section_entries SET content = $1 WHERE id = $2', [content, id]);
+}
+
+export async function updateCustomSectionEntryEmoji(
+  id: number,
+  emojiId: string | null
+): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE custom_section_entries SET emoji_id = $1 WHERE id = $2', [emojiId, id]);
+}
+
+export async function deleteCustomSectionEntry(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM custom_section_entries WHERE id = $1', [id]);
+}
+
+export async function reorderCustomSectionEntries(
+  date: string,
+  sectionId: number,
+  orderedIds: number[]
+): Promise<void> {
+  const db = await getDb();
+  for (let i = 0; i < orderedIds.length; i++) {
+    await db.execute(
+      'UPDATE custom_section_entries SET sort_order = $1 WHERE id = $2 AND date = $3 AND section_id = $4',
+      [i, orderedIds[i], date, sectionId]
+    );
+  }
+}
+
+/** Copies entries of every "copy to new day" section from the source date to the target date. */
+async function copyCustomSectionEntriesToNewDay(
+  sourceDate: string,
+  targetDate: string
+): Promise<void> {
+  const db = await getDb();
+  const sections = await getCustomSections();
+  for (const section of sections) {
+    if (!section.copy_to_new_day) continue;
+    const rows = await db.select<Record<string, unknown>[]>(
+      'SELECT content, emoji_id FROM custom_section_entries WHERE date = $1 AND section_id = $2 ORDER BY sort_order, id',
+      [sourceDate, section.id]
+    );
+    const entries = Array.isArray(rows) ? rows : [];
+    for (let i = 0; i < entries.length; i++) {
+      await db.execute(
+        'INSERT INTO custom_section_entries (section_id, date, content, emoji_id, sort_order) VALUES ($1, $2, $3, $4, $5)',
+        [
+          section.id,
+          targetDate,
+          String(entries[i].content),
+          entries[i].emoji_id != null ? String(entries[i].emoji_id) : null,
+          i,
+        ]
+      );
+    }
+  }
+}
+
 /** Insert a task for the focus entry's date, then delete the focus entry. */
 export async function completeFocusEntry(entryId: number, emojiId: string | null): Promise<void> {
   const db = await getDb();
@@ -461,66 +660,75 @@ export async function completeFocusEntry(entryId: number, emojiId: string | null
   await deleteDayEntry(entryId);
 }
 
+function tableForLocation(loc: ListLocation): string {
+  if (loc.kind === 'task') return 'work_log_entries';
+  if (loc.kind === 'custom') return 'custom_section_entries';
+  return 'day_entries';
+}
+
+/** Reads the content + emoji of an item, regardless of which list it lives in. */
+async function readListItem(
+  loc: ListLocation,
+  id: number
+): Promise<{ content: string; emoji_id: string | null } | null> {
+  const db = await getDb();
+  const rows = await db.select<Record<string, unknown>[]>(
+    `SELECT content, emoji_id FROM ${tableForLocation(loc)} WHERE id = $1 LIMIT 1`,
+    [id]
+  );
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  return {
+    content: String(rows[0].content),
+    emoji_id: rows[0].emoji_id != null ? String(rows[0].emoji_id) : null,
+  };
+}
+
+/** Appends a new item to the destination list and returns its id. */
+async function insertListItem(
+  date: string,
+  loc: ListLocation,
+  content: string,
+  emojiId: string | null
+): Promise<number> {
+  if (loc.kind === 'task') return addTask(date, content, emojiId);
+  if (loc.kind === 'custom') return addCustomSectionEntry(loc.sectionId, date, content, emojiId);
+  return addDayEntry(date, loc.kind, content, emojiId);
+}
+
+async function deleteListItem(loc: ListLocation, id: number): Promise<void> {
+  if (loc.kind === 'task') return deleteTask(id);
+  if (loc.kind === 'custom') return deleteCustomSectionEntry(id);
+  return deleteDayEntry(id);
+}
+
+function sameLocation(a: ListLocation, b: ListLocation): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === 'custom' && b.kind === 'custom') return a.sectionId === b.sectionId;
+  return true;
+}
+
 /**
- * Move a single item from one list to another for the same date.
- * Returns the new id in the destination storage (same id when staying in
- * day_entries, new id when crossing tables). Caller should then call
- * reorderTasksForDate or reorderDayEntries to position the new id.
+ * Moves a single item from one list to another for the same date by appending a
+ * copy to the destination and deleting the source. Returns the new id, which the
+ * caller can position with the matching reorder function.
  *
- * `emojiForDestination` is applied to the new entry: when the destination is
- * 'task' (the caller resolves it like completeFocusEntry's caller does) and,
- * when non-null, when the destination is 'upcoming' (carries an emoji across).
- * A null with an 'upcoming' destination lets the upcoming default apply.
+ * `emojiForDestination` is applied to the new entry (the caller resolves it). For
+ * a focus destination, emoji is ignored (focus has no emoji); for upcoming, a null
+ * is stored as null (the caller decides whether to apply the upcoming default).
  */
 export async function moveItemBetweenLists(
   date: string,
-  sourceKind: ListKind,
+  source: ListLocation,
   sourceId: number,
-  targetKind: ListKind,
+  target: ListLocation,
   emojiForDestination: string | null
 ): Promise<number> {
-  if (sourceKind === targetKind) return sourceId;
-  const db = await getDb();
-
-  if (sourceKind === 'task') {
-    const rows = await db.select<Record<string, unknown>[]>(
-      'SELECT * FROM work_log_entries WHERE id = $1 LIMIT 1',
-      [sourceId]
-    );
-    if (!Array.isArray(rows) || rows.length === 0) return sourceId;
-    const content = String(rows[0].content);
-    const newId =
-      targetKind === 'upcoming' && emojiForDestination != null
-        ? await addDayEntry(date, 'upcoming', content, emojiForDestination)
-        : await addDayEntry(date, targetKind as 'focus' | 'upcoming', content);
-    await deleteTask(sourceId);
-    return newId;
-  }
-
-  if (targetKind === 'task') {
-    const rows = await db.select<Record<string, unknown>[]>(
-      'SELECT * FROM day_entries WHERE id = $1 LIMIT 1',
-      [sourceId]
-    );
-    if (!Array.isArray(rows) || rows.length === 0) return sourceId;
-    const entry = mapDayEntryRow(rows[0]);
-    const newId = await addTask(entry.date, entry.content, emojiForDestination);
-    await deleteDayEntry(sourceId);
-    return newId;
-  }
-
-  // focus <-> upcoming: same table, flip the kind column.
-  const countResult = await db.select<[{ count: number }]>(
-    'SELECT COUNT(*) as count FROM day_entries WHERE date = $1 AND kind = $2',
-    [date, targetKind]
-  );
-  const count = Array.isArray(countResult) ? countResult[0]?.count ?? 0 : 0;
-  const sortOrder = typeof count === 'number' ? count : 0;
-  await db.execute(
-    'UPDATE day_entries SET kind = $1, sort_order = $2 WHERE id = $3',
-    [targetKind, sortOrder, sourceId]
-  );
-  return sourceId;
+  if (sameLocation(source, target)) return sourceId;
+  const item = await readListItem(source, sourceId);
+  if (!item) return sourceId;
+  const newId = await insertListItem(date, target, item.content, emojiForDestination);
+  await deleteListItem(source, sourceId);
+  return newId;
 }
 
 /** Removes the day row, all work log entries, and all focus/upcoming entries for that calendar date. */

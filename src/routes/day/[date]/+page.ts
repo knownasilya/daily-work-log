@@ -9,6 +9,8 @@ import {
   getDayEntries,
   getMentions,
   getFocusCarryModeSetting,
+  getCustomSections,
+  getCustomSectionEntries,
 } from '$lib/api/db';
 import { toYYYYMMDD, isValidDateStr } from '$lib/utils';
 
@@ -21,17 +23,29 @@ export async function load({ params }: { params: { date: string } }) {
   // ensureDay must finish before sibling queries: new days carry pinned tasks and upcoming->focus
   // entries inside ensureDay, and parallel reads would often resolve first with empty lists.
   const dayRow = await ensureDay(date);
-  const [tasks, dayEntries, emojiRules, lastDay, prevDay, nextDay, mentions, focusCarryMode] =
-    await Promise.all([
-      getTasksForDate(date),
-      getDayEntries(date),
-      getEmojiRules(),
-      getLastDay(),
-      getLatestDayBefore(date),
-      getEarliestDayAfter(date),
-      getMentions(),
-      getFocusCarryModeSetting(),
-    ]);
+  const [
+    tasks,
+    dayEntries,
+    emojiRules,
+    lastDay,
+    prevDay,
+    nextDay,
+    mentions,
+    focusCarryMode,
+    customSections,
+    customEntries,
+  ] = await Promise.all([
+    getTasksForDate(date),
+    getDayEntries(date),
+    getEmojiRules(),
+    getLastDay(),
+    getLatestDayBefore(date),
+    getEarliestDayAfter(date),
+    getMentions(),
+    getFocusCarryModeSetting(),
+    getCustomSections(),
+    getCustomSectionEntries(date),
+  ]);
 
   return {
     date,
@@ -42,6 +56,8 @@ export async function load({ params }: { params: { date: string } }) {
     emojiRules,
     mentions,
     focusCarryMode,
+    customSections,
+    customEntries,
     isToday: date === toYYYYMMDD(new Date()),
     isLatestDay: lastDay !== null && date === lastDay,
     prevDay,

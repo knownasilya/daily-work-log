@@ -28,6 +28,12 @@
     getCompletedDefaultEmojiSetting,
     getIncompleteFocusDefaultEmojiSetting,
     getExcludeFocusFromCopySetting,
+    addCustomSectionEntry,
+    updateCustomSectionEntryContent,
+    updateCustomSectionEntryEmoji,
+    deleteCustomSectionEntry,
+    reorderCustomSectionEntries,
+    type ListLocation,
   } from '$lib/api/db';
   import { writeText as clipboardWriteText } from '@tauri-apps/plugin-clipboard-manager';
   import { formatDatePretty, parseMarkdownListItems } from '$lib/utils';
@@ -90,8 +96,16 @@
   let noteMenuOpen = $state(false);
   let noteMenuPos = $state<{ left: number; top: number }>({ left: 0, top: 0 });
   let noteMenuItems = $state<string[]>([]);
-  let logItemMenu = $state<{ taskId: number; left: number; top: number } | null>(null);
+  /** Generic right-click menu for any list item: its list, id, and screen position. */
+  let itemMenu = $state<{ loc: ListKind; id: number; left: number; top: number } | null>(null);
   let copiedToTodayFeedback = $state(false);
+  /** Per-section text for the "add to custom section" inputs, keyed by section id. */
+  let newCustomInputs = $state<Record<number, string>>({});
+  /** Shared emoji dropdown + kebab menu state for custom-section entries (entry ids are unique). */
+  let customEmojiDropdownOpen = $state<number | null>(null);
+  let customEmojiDropdownPos = $state<EmojiDropdownPlacement>({ kind: 'below', left: 0, top: 0 });
+  let customMenuOpen = $state<number | null>(null);
+  let customMenuPos = $state<EntryMenuPlacement>({ kind: 'below', right: 0, top: 0, maxWidthPx: 280 });
   let dayHeaderMenuOpen = $state(false);
   let dayHeaderMenuPos = $state<EntryMenuPlacement>({
     kind: 'below',
@@ -105,7 +119,8 @@
   let noteText = $state('');
   /** Pointer-based reorder (HTML5 DnD is unreliable in Tauri WKWebView). */
   const REORDER_THRESHOLD_PX = 8;
-  type ListKind = 'task' | 'focus' | 'upcoming';
+  /** Built-in lists are fixed strings; custom sections are encoded as `custom:<id>`. */
+  type ListKind = 'task' | 'focus' | 'upcoming' | `custom:${number}`;
   type PendingPointer = { x: number; y: number; entityId: number; kind: ListKind; pointerId: number };
   let pendingPointer: PendingPointer | null = null;
   let reorderActive = $state(false);
@@ -137,6 +152,67 @@
   let upcomingEntries = $derived(data.upcomingEntries);
   let emojiRules = $derived(data.emojiRules);
   let mentions = $derived(data.mentions);
+  let customSections = $derived(data.customSections);
+  /** Custom-section entries grouped by section id, each list ordered. */
+  let customEntriesBySection = $derived.by(() => {
+    const map = new Map<number, typeof data.customEntries>();
+    for (const section of customSections) map.set(section.id, []);
+    for (const entry of data.customEntries) {
+      const list = map.get(entry.section_id);
+      if (list) list.push(entry);
+    }
+    return map;
+  });
+
+  /** Every list an item can be moved to, in display order, with a human label. */
+  let moveTargets = $derived([
+    { key: 'focus' as ListKind, name: 'Focus' },
+    { key: 'task' as ListKind, name: 'Log' },
+    { key: 'upcoming' as ListKind, name: 'Upcoming' },
+    ...customSections.map((s) => ({ key: `custom:${s.id}` as ListKind, name: s.name })),
+  ]);
+
+  function isCustomKey(kind: ListKind): boolean {
+    return typeof kind === 'string' && kind.startsWith('custom:');
+  }
+  function customSectionId(kind: ListKind): number | null {
+    return isCustomKey(kind) ? Number(kind.slice('custom:'.length)) : null;
+  }
+  function toLocation(kind: ListKind): ListLocation {
+    const sid = customSectionId(kind);
+    if (sid != null) return { kind: 'custom', sectionId: sid };
+    return { kind: kind as 'task' | 'focus' | 'upcoming' };
+  }
+  /** True for the three built-in keys or a well-formed `custom:<id>` of an existing section. */
+  function isValidListKey(value: string): value is ListKind {
+    if (value === 'task' || value === 'focus' || value === 'upcoming') return true;
+    if (!value.startsWith('custom:')) return false;
+    const sid = Number(value.slice('custom:'.length));
+    return Number.isFinite(sid) && customSections.some((s) => s.id === sid);
+  }
+
+  /**
+   * Resolves the emoji a moved item should carry into its destination list:
+   * - to focus: none (focus shows no emoji)
+   * - to task/custom: the item's own emoji, else auto-assign by content, else completed default
+   * - to upcoming: the item's own emoji, else the upcoming default
+   * An upcoming source's emoji only counts as "its own" when it differs from the upcoming default.
+   */
+  async function resolveMoveEmoji(
+    srcKind: ListKind,
+    srcItem: { content: string; emoji_id: string | null } | undefined,
+    tgtKind: ListKind
+  ): Promise<string | null> {
+    if (tgtKind === 'focus') return null;
+    let own = srcItem?.emoji_id ?? null;
+    if (srcKind === 'upcoming' && own) {
+      const upcomingDefault = await getUpcomingDefaultEmojiSetting();
+      if (own === upcomingDefault) own = null;
+    }
+    if (own) return own;
+    if (tgtKind === 'upcoming') return await getUpcomingDefaultEmojiSetting();
+    return tryAutoAssignEmoji(srcItem?.content ?? '', emojiRules) ?? (await getCompletedDefaultEmojiSetting());
+  }
 
   type InputKind = 'task' | 'focus' | 'upcoming';
   let mentionInputState = $state<{
@@ -283,27 +359,36 @@
     await invalidateAll();
   }
 
-  /** Right-click on a log item: the same actions as the kebab menu, plus "Copy to today" on past days. */
-  function handleLogItemContextMenu(taskId: number, ev: MouseEvent) {
-    ev.preventDefault();
+  function closeAllMenus() {
     dayHeaderMenuOpen = false;
     emojiDropdownOpen = null;
     entryMenuOpen = null;
     focusMenuOpen = null;
     upcomingMenuOpen = null;
+    upcomingEmojiDropdownOpen = null;
+    customMenuOpen = null;
+    customEmojiDropdownOpen = null;
     noteMenuOpen = false;
-    const estW = 200;
-    const estH = 130;
+  }
+
+  /** Right-click on any list item: opens the generic actions menu (Copy/Pin for Log, Move to…, Delete). */
+  function openItemMenu(loc: ListKind, id: number, ev: MouseEvent) {
+    ev.preventDefault();
+    closeAllMenus();
+    const estW = 220;
+    // height grows with the move-target list; estimate generously so it stays on-screen.
+    const estH = 120 + moveTargets.length * 32;
     const pad = 8;
-    logItemMenu = {
-      taskId,
+    itemMenu = {
+      loc,
+      id,
       left: Math.min(ev.clientX, window.innerWidth - estW - pad),
       top: Math.min(ev.clientY, window.innerHeight - estH - pad),
     };
   }
 
   async function copyTaskToToday(taskId: number) {
-    logItemMenu = null;
+    itemMenu = null;
     entryMenuOpen = null;
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
@@ -314,10 +399,103 @@
     await invalidateAll();
   }
 
-  function listItemsFor(kind: ListKind) {
+  /** Moves an item to the end of another list (built-in or custom) via the menu. */
+  async function moveItemToSection(srcKind: ListKind, id: number, tgtKind: ListKind) {
+    itemMenu = null;
+    if (srcKind === tgtKind) return;
+    const srcItem = listItemsFor(srcKind).find((x) => x.id === id);
+    const emoji = await resolveMoveEmoji(srcKind, srcItem, tgtKind);
+    await moveItemBetweenLists(data.date, toLocation(srcKind), id, toLocation(tgtKind), emoji);
+    await invalidateAll();
+  }
+
+  async function deleteItemFromList(loc: ListKind, id: number) {
+    itemMenu = null;
+    const location = toLocation(loc);
+    if (location.kind === 'task') await deleteTask(id);
+    else if (location.kind === 'custom') await deleteCustomSectionEntry(id);
+    else await deleteDayEntry(id);
+    await invalidateAll();
+  }
+
+  // ---- Custom-section entry handlers (an emoji list, like Log) ----
+
+  async function handleAddCustomEntry(sectionId: number) {
+    const content = (newCustomInputs[sectionId] ?? '').trim();
+    if (!content) return;
+    const emojiId = tryAutoAssignEmoji(content, emojiRules);
+    await addCustomSectionEntry(sectionId, data.date, content, emojiId);
+    await syncMentionsFromText(content);
+    newCustomInputs[sectionId] = '';
+    await invalidateAll();
+  }
+
+  function handleCustomKeydown(sectionId: number, e: KeyboardEvent) {
+    if (e.key === 'Enter') handleAddCustomEntry(sectionId);
+  }
+
+  async function handleUpdateCustomEntry(id: number, content: string) {
+    await updateCustomSectionEntryContent(id, content);
+    if (content.trim()) await syncMentionsFromText(content);
+    await invalidateAll();
+  }
+
+  function handleDeleteCustomEntry(id: number) {
+    customMenuOpen = null;
+    deleteCustomSectionEntry(id).then(() => invalidateAll());
+  }
+
+  function toggleCustomEmojiDropdown(entryId: number, ev: MouseEvent) {
+    if (customEmojiDropdownOpen === entryId) {
+      customEmojiDropdownOpen = null;
+    } else {
+      closeAllMenus();
+      const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+      customEmojiDropdownPos = computeEmojiDropdownPosition(rect);
+      customEmojiDropdownOpen = entryId;
+    }
+  }
+
+  function onCustomEmojiActivatorClick(entryId: number, ev: MouseEvent) {
+    if (ignoreClickAfterDrag) {
+      ignoreClickAfterDrag = false;
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
+    toggleCustomEmojiDropdown(entryId, ev);
+  }
+
+  function selectCustomEmoji(entryId: number, emojiId: string | null) {
+    updateCustomSectionEntryEmoji(entryId, emojiId).then(() => invalidateAll());
+    customEmojiDropdownOpen = null;
+  }
+
+  function toggleCustomMenu(entryId: number, ev: MouseEvent) {
+    if (customMenuOpen === entryId) {
+      customMenuOpen = null;
+    } else {
+      closeAllMenus();
+      const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+      customMenuPos = computeEntryMenuPosition(rect);
+      customMenuOpen = entryId;
+    }
+  }
+
+  function listItemsFor(kind: ListKind): { id: number; content: string; emoji_id: string | null }[] {
     if (kind === 'task') return tasks;
     if (kind === 'focus') return focusEntries;
-    return upcomingEntries;
+    if (kind === 'upcoming') return upcomingEntries;
+    const sid = customSectionId(kind);
+    return sid != null ? customEntriesBySection.get(sid) ?? [] : [];
+  }
+
+  /** Persists a new id-order for whichever list `kind` refers to. */
+  function persistListOrder(kind: ListKind, ids: number[]): Promise<void> {
+    if (kind === 'task') return reorderTasksForDate(data.date, ids);
+    if (kind === 'focus' || kind === 'upcoming') return reorderDayEntries(data.date, kind, ids);
+    const sid = customSectionId(kind);
+    return sid != null ? reorderCustomSectionEntries(data.date, sid, ids) : Promise.resolve();
   }
 
   function sameIdOrder(a: number[], b: number[]) {
@@ -341,8 +519,8 @@
     const hit = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
     const row = hit?.closest('[data-row-list]') as HTMLElement | null;
     if (row) {
-      const kind = row.dataset.rowList as ListKind | undefined;
-      if (kind === 'task' || kind === 'focus' || kind === 'upcoming') {
+      const kind = row.dataset.rowList;
+      if (kind && isValidListKey(kind)) {
         const id = Number(row.dataset.rowId);
         const items = listItemsFor(kind);
         const idx = items.findIndex((t) => t.id === id);
@@ -355,8 +533,8 @@
     }
     const section = hit?.closest('[data-list-section]') as HTMLElement | null;
     if (section) {
-      const kind = section.dataset.listSection as ListKind | undefined;
-      if (kind === 'task' || kind === 'focus' || kind === 'upcoming') {
+      const kind = section.dataset.listSection;
+      if (kind && isValidListKey(kind)) {
         return { kind, slot: listItemsFor(kind).length };
       }
     }
@@ -486,42 +664,23 @@
           const ids = listItemsFor(srcKind).map((t) => t.id);
           const next = orderIdsWithInsert(ids, src, slot);
           if (!sameIdOrder(ids, next)) {
-            const persist =
-              srcKind === 'task'
-                ? reorderTasksForDate(data.date, next)
-                : reorderDayEntries(data.date, srcKind, next);
-            persist.then(() => invalidateAll());
+            persistListOrder(srcKind, next).then(() => invalidateAll());
             ignoreClickAfterDrag = true;
           }
         } else {
           const srcItem = listItemsFor(srcKind).find((x) => x.id === src);
-          let emojiForDestination: string | null = null;
-          if (tgtKind === 'task') {
-            const content = srcItem?.content ?? '';
-            // An upcoming item with an emoji the user picked (i.e. not the upcoming
-            // default) carries that emoji into the log; otherwise fall back as before.
-            let keptEmoji: string | null = null;
-            if (srcKind === 'upcoming' && srcItem?.emoji_id) {
-              const upcomingDefault = await getUpcomingDefaultEmojiSetting();
-              if (srcItem.emoji_id !== upcomingDefault) keptEmoji = srcItem.emoji_id;
-            }
-            emojiForDestination =
-              keptEmoji ??
-              tryAutoAssignEmoji(content, emojiRules) ??
-              (await getCompletedDefaultEmojiSetting());
-          } else if (srcKind === 'task' && tgtKind === 'upcoming') {
-            // Carry the log item's emoji into upcoming; null lets the upcoming default apply.
-            emojiForDestination = srcItem?.emoji_id ?? null;
-          }
-          const newId = await moveItemBetweenLists(data.date, srcKind, src, tgtKind, emojiForDestination);
+          const emojiForDestination = await resolveMoveEmoji(srcKind, srcItem, tgtKind);
+          const newId = await moveItemBetweenLists(
+            data.date,
+            toLocation(srcKind),
+            src,
+            toLocation(tgtKind),
+            emojiForDestination
+          );
           const targetIds = listItemsFor(tgtKind).map((x) => x.id);
           const pos = Math.max(0, Math.min(slot, targetIds.length));
           targetIds.splice(pos, 0, newId);
-          if (tgtKind === 'task') {
-            await reorderTasksForDate(data.date, targetIds);
-          } else {
-            await reorderDayEntries(data.date, tgtKind, targetIds);
-          }
+          await persistListOrder(tgtKind, targetIds);
           await invalidateAll();
           ignoreClickAfterDrag = true;
         }
@@ -729,6 +888,13 @@
         .join('\n');
       sections.push(`Upcoming:\n${upcomingLines}`);
     }
+    for (const section of customSections) {
+      if (!section.include_in_task_copy) continue;
+      const items = customEntriesBySection.get(section.id) ?? [];
+      if (items.length === 0) continue;
+      const lines = items.map((e) => formatLineForSlack(e, rules)).join('\n');
+      sections.push(`${section.name}:\n${lines}`);
+    }
     const text = sections.join('\n\n');
     if (!text) return;
     await clipboardWriteText(text);
@@ -887,6 +1053,7 @@
           <li
             data-row-list="focus"
             data-row-id={entry.id}
+            oncontextmenu={(e) => openItemMenu('focus', entry.id, e)}
             class="flex items-start gap-2 group relative rounded overflow-visible {reorderSourceKind === 'focus' && reorderSourceId === entry.id
               ? 'opacity-50'
               : ''}"
@@ -999,7 +1166,7 @@
         <li
           data-row-list="task"
           data-row-id={task.id}
-          oncontextmenu={(e) => handleLogItemContextMenu(task.id, e)}
+          oncontextmenu={(e) => openItemMenu('task', task.id, e)}
           class="flex items-start gap-2 group relative rounded overflow-visible {reorderSourceKind === 'task' && reorderSourceId === task.id
             ? 'opacity-50'
             : ''}"
@@ -1194,6 +1361,7 @@
           <li
             data-row-list="upcoming"
             data-row-id={entry.id}
+            oncontextmenu={(e) => openItemMenu('upcoming', entry.id, e)}
             class="flex items-start gap-2 group relative rounded overflow-visible {reorderSourceKind === 'upcoming' && reorderSourceId === entry.id
               ? 'opacity-50'
               : ''}"
@@ -1321,6 +1489,154 @@
         />
       </div>
     </div>
+
+    {#each customSections as section (section.id)}
+      {@const items = customEntriesBySection.get(section.id) ?? []}
+      {@const sectionKey = `custom:${section.id}` as const}
+      <div
+        class="my-4 border-t border-gray-300 dark:border-gray-700"
+        aria-hidden="true"
+      ></div>
+      <div class="pt-2" data-list-section={sectionKey}>
+        <div class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{section.name}</div>
+        <ul class="space-y-1 overflow-visible">
+          {#if reorderActive && reorderTargetKind === sectionKey && items.length === 0 && reorderInsertSlot === 0}
+            <li
+              class="pointer-events-none relative h-0.5 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
+              aria-hidden="true"
+            ></li>
+          {/if}
+          {#each items as entry, i (entry.id)}
+            <li
+              data-row-list={sectionKey}
+              data-row-id={entry.id}
+              oncontextmenu={(e) => openItemMenu(sectionKey, entry.id, e)}
+              class="flex items-start gap-2 group relative rounded overflow-visible {reorderSourceKind === sectionKey && reorderSourceId === entry.id
+                ? 'opacity-50'
+                : ''}"
+            >
+              {#if reorderActive && reorderTargetKind === sectionKey && reorderInsertSlot === i}
+                <div
+                  class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-0.5 -translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
+                  aria-hidden="true"
+                ></div>
+              {/if}
+              {#if reorderActive && reorderTargetKind === sectionKey && reorderInsertSlot === items.length && i === items.length - 1}
+                <div
+                  class="pointer-events-none absolute left-0 right-0 bottom-0 z-10 h-0.5 translate-y-1/2 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm"
+                  aria-hidden="true"
+                ></div>
+              {/if}
+              <div
+                role="button"
+                aria-label="Change emoji; drag to reorder"
+                tabindex="0"
+                class="emoji-drag-handle w-8 h-8 shrink-0 flex items-center justify-center border border-gray-300 dark:border-gray-600 rounded cursor-grab active:cursor-grabbing relative touch-none select-none"
+                onclick={(e) => onCustomEmojiActivatorClick(entry.id, e)}
+                onkeydown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onCustomEmojiActivatorClick(entry.id, e as unknown as MouseEvent);
+                  }
+                }}
+                onpointerdown={(e) => handleReorderPointerDown(entry.id, sectionKey, e)}
+                onpointermove={(e) => handleReorderPointerMove(e.currentTarget as HTMLElement, e)}
+                onpointerup={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
+                onpointercancel={(e) => handleReorderPointerUp(e.currentTarget as HTMLElement, e)}
+              >
+                {#if entry.emoji_id}
+                  {#each emojiRules as rule (rule.id)}
+                    {#if rule.id === entry.emoji_id}
+                      <img
+                        src={rule.image}
+                        alt={rule.label?.trim() || rule.text}
+                        class="emoji-slot-img w-5 h-5 pointer-events-none select-none"
+                        draggable="false"
+                      />
+                    {/if}
+                  {/each}
+                {:else}
+                  <span class="text-gray-300 dark:text-gray-500 text-xs pointer-events-none select-none"
+                    >+</span
+                  >
+                {/if}
+              </div>
+              {#if customEmojiDropdownOpen === entry.id}
+                <EmojiPicker
+                  rules={emojiRules}
+                  currentEmojiId={entry.emoji_id}
+                  placement={customEmojiDropdownPos}
+                  onSelect={(id) => selectCustomEmoji(entry.id, id)}
+                />
+              {/if}
+              <RichText
+                value={entry.content}
+                onSave={(val) => handleUpdateCustomEntry(entry.id, val)}
+                saveOn="enter"
+                onEmptyBackspace={() => handleDeleteCustomEntry(entry.id)}
+                wrapperClass="flex-1 min-w-0"
+                {mentions}
+                class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words pr-8"
+              />
+              <div class="absolute right-0 top-0 flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onclick={(e) => toggleCustomMenu(entry.id, e)}
+                  class="p-1 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-opacity duration-150 {reorderActive || customMenuOpen === entry.id
+                    ? 'opacity-100 pointer-events-auto'
+                    : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'}"
+                  aria-label="Entry options"
+                  aria-expanded={customMenuOpen === entry.id}
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                    />
+                  </svg>
+                </button>
+              </div>
+              {#if customMenuOpen === entry.id}
+                <div
+                  role="menu"
+                  tabindex="-1"
+                  class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded shadow-lg py-1 min-w-[160px] w-max text-left"
+                  style:right="{customMenuPos.right}px"
+                  style:left="auto"
+                  style:top={customMenuPos.kind === 'below' ? `${customMenuPos.top}px` : undefined}
+                  style:bottom={customMenuPos.kind === 'above' ? `${customMenuPos.bottom}px` : undefined}
+                  style:max-width="{customMenuPos.maxWidthPx}px"
+                  onclick={(e) => e.stopPropagation()}
+                  onkeydown={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onclick={() => handleDeleteCustomEntry(entry.id)}
+                    class="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
+                  >
+                    Delete
+                  </button>
+                </div>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+        <div class="pt-1 flex gap-2">
+          <input
+            type="text"
+            value={newCustomInputs[section.id] ?? ''}
+            oninput={(e) => (newCustomInputs[section.id] = (e.currentTarget as HTMLInputElement).value)}
+            onkeydown={(e) => handleCustomKeydown(section.id, e)}
+            placeholder={`Add to ${section.name}...`}
+            class="flex-1 min-w-0 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+          />
+        </div>
+      </div>
+    {/each}
+
     <div
       class="my-4 border-t border-gray-300 dark:border-gray-700"
       aria-hidden="true"
@@ -1362,7 +1678,7 @@
     </button>
     <button
       onclick={copyToSlack}
-      disabled={tasks.length === 0 && upcomingEntries.length === 0 && focusEntries.length === 0}
+      disabled={tasks.length === 0 && upcomingEntries.length === 0 && focusEntries.length === 0 && data.customEntries.length === 0}
       class="flex-1 mx-4 py-2 text-sm font-medium rounded transition-all duration-200 disabled:opacity-40 disabled:pointer-events-none {copiedFeedback
         ? 'bg-green-500 text-white scale-[1.02]'
         : 'bg-green-600 text-white hover:bg-green-700'}"
@@ -1414,22 +1730,24 @@
   </div>
 {/if}
 
-{#if logItemMenu}
-  {@const menuTask = tasks.find((t) => t.id === logItemMenu!.taskId)}
+{#if itemMenu}
+  {@const menuLoc = itemMenu.loc}
+  {@const menuId = itemMenu.id}
+  {@const menuTask = menuLoc === 'task' ? tasks.find((t) => t.id === menuId) : undefined}
   <div
     role="menu"
     tabindex="-1"
     class="fixed z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded shadow-lg py-1 min-w-[180px] w-max text-left"
-    style:left="{logItemMenu.left}px"
-    style:top="{logItemMenu.top}px"
+    style:left="{itemMenu.left}px"
+    style:top="{itemMenu.top}px"
     onclick={(e) => e.stopPropagation()}
     onkeydown={(e) => e.stopPropagation()}
   >
-    {#if !data.isToday}
+    {#if menuLoc === 'task' && !data.isToday}
       <button
         type="button"
         role="menuitem"
-        onclick={() => copyTaskToToday(logItemMenu!.taskId)}
+        onclick={() => copyTaskToToday(menuId)}
         class="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
       >
         Copy to today
@@ -1440,31 +1758,39 @@
         type="button"
         role="menuitem"
         onclick={() => {
-          const t = menuTask;
-          logItemMenu = null;
-          handleTogglePinned(t.id, !t.pinned);
+          itemMenu = null;
+          handleTogglePinned(menuTask.id, !menuTask.pinned);
         }}
         class="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
       >
         {menuTask.pinned ? 'Unpin' : 'Pin'}
       </button>
+    {/if}
+    <div class="my-1 border-t border-gray-200 dark:border-gray-700" aria-hidden="true"></div>
+    <div class="px-3 py-0.5 text-xs text-gray-400 dark:text-gray-500">Move to</div>
+    {#each moveTargets.filter((t) => t.key !== menuLoc) as target (target.key)}
       <button
         type="button"
         role="menuitem"
-        onclick={() => {
-          const id = menuTask.id;
-          logItemMenu = null;
-          handleDelete(id);
-        }}
-        class="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
+        onclick={() => moveItemToSection(menuLoc, menuId, target.key)}
+        class="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 truncate"
       >
-        Delete
+        {target.name}
       </button>
-    {/if}
+    {/each}
+    <div class="my-1 border-t border-gray-200 dark:border-gray-700" aria-hidden="true"></div>
+    <button
+      type="button"
+      role="menuitem"
+      onclick={() => deleteItemFromList(menuLoc, menuId)}
+      class="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
+    >
+      Delete
+    </button>
   </div>
 {/if}
 
-{#if emojiDropdownOpen !== null || upcomingEmojiDropdownOpen !== null || entryMenuOpen !== null || focusMenuOpen !== null || upcomingMenuOpen !== null || dayHeaderMenuOpen || noteMenuOpen || logItemMenu}
+{#if emojiDropdownOpen !== null || upcomingEmojiDropdownOpen !== null || entryMenuOpen !== null || focusMenuOpen !== null || upcomingMenuOpen !== null || customEmojiDropdownOpen !== null || customMenuOpen !== null || dayHeaderMenuOpen || noteMenuOpen || itemMenu}
   <button
     type="button"
     class="fixed inset-0 z-40"
@@ -1475,9 +1801,11 @@
       entryMenuOpen = null;
       focusMenuOpen = null;
       upcomingMenuOpen = null;
+      customEmojiDropdownOpen = null;
+      customMenuOpen = null;
       dayHeaderMenuOpen = false;
       noteMenuOpen = false;
-      logItemMenu = null;
+      itemMenu = null;
     }}
   ></button>
 {/if}

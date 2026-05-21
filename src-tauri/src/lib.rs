@@ -67,6 +67,12 @@ pub fn run() {
             sql: include_str!("../migrations/007_day_entries.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 8,
+            description: "custom_sections",
+            sql: include_str!("../migrations/008_custom_sections.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     let mut builder = tauri::Builder::default();
