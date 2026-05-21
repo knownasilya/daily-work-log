@@ -26,6 +26,7 @@
     getUpcomingDefaultEmojiSetting,
     getCompletedDefaultEmojiSetting,
     getIncompleteFocusDefaultEmojiSetting,
+    getExcludeFocusFromCopySetting,
   } from '$lib/api/db';
   import { writeText as clipboardWriteText } from '@tauri-apps/plugin-clipboard-manager';
   import { formatDatePretty, parseMarkdownListItems } from '$lib/utils';
@@ -705,15 +706,17 @@
 
   async function copyToSlack() {
     const rules = emojiRules.length ? emojiRules : await getEmojiRules();
+    const excludeFocus = await getExcludeFocusFromCopySetting();
+    const includedFocus = excludeFocus ? [] : focusEntries;
     const sections: string[] = [];
     if (tasks.length > 0) {
       sections.push(tasks.map((t) => formatLineForSlack(t, rules)).join('\n'));
     }
-    if (focusEntries.length > 0 || upcomingEntries.length > 0) {
+    if (includedFocus.length > 0 || upcomingEntries.length > 0) {
       const focusFallback =
         (await getIncompleteFocusDefaultEmojiSetting()) ??
         (await getUpcomingDefaultEmojiSetting());
-      const carriedFocus = focusEntries.map((e) => ({ ...e, emoji_id: focusFallback }));
+      const carriedFocus = includedFocus.map((e) => ({ ...e, emoji_id: focusFallback }));
       const upcomingLines = [...carriedFocus, ...upcomingEntries]
         .map((e) => formatLineForSlack(e, rules))
         .join('\n');

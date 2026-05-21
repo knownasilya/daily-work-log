@@ -18,6 +18,8 @@
     setCompletedDefaultEmojiSetting,
     getIncompleteFocusDefaultEmojiSetting,
     setIncompleteFocusDefaultEmojiSetting,
+    getExcludeFocusFromCopySetting,
+    setExcludeFocusFromCopySetting,
     getMentions,
     setMentions,
     addMentionsIfMissing,
@@ -34,6 +36,7 @@
   let upcomingDefaultEmojiId = $state<string | null>(null);
   let completedDefaultEmojiId = $state<string | null>(null);
   let incompleteFocusDefaultEmojiId = $state<string | null>(null);
+  let excludeFocusFromCopy = $state(false);
   let weeklyExcludedIds = $state<Set<string>>(new Set());
   let labeledRules = $derived(rules.filter((r) => r.label?.trim()));
   let rulesById = $derived(new Map(rules.map((r) => [r.id, r])));
@@ -393,6 +396,10 @@
     await setIncompleteFocusDefaultEmojiSetting(incompleteFocusDefaultEmojiId);
   }
 
+  async function saveExcludeFocusFromCopySetting() {
+    await setExcludeFocusFromCopySetting(excludeFocusFromCopy);
+  }
+
   function deleteRule(id: string) {
     if (editingRuleId === id) cancelEdit();
     deleteEmojiRule(id).then(() => {
@@ -441,6 +448,7 @@
     getUpcomingDefaultEmojiSetting().then((id) => (upcomingDefaultEmojiId = id));
     getCompletedDefaultEmojiSetting().then((id) => (completedDefaultEmojiId = id));
     getIncompleteFocusDefaultEmojiSetting().then((id) => (incompleteFocusDefaultEmojiId = id));
+    getExcludeFocusFromCopySetting().then((v) => (excludeFocusFromCopy = v));
     getWeeklyExcludedEmojisSetting().then((ids) => (weeklyExcludedIds = new Set(ids)));
     getMentions().then((m) => (mentions = m));
   });
@@ -586,6 +594,15 @@
               </select>
             </div>
           </div>
+          <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 select-none p-3 border dark:border-gray-700 rounded">
+            <input
+              type="checkbox"
+              bind:checked={excludeFocusFromCopy}
+              onchange={saveExcludeFocusFromCopySetting}
+              class="w-4 h-4"
+            />
+            Don’t include focus items when copying tasks
+          </label>
         </div>
       </section>
 

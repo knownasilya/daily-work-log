@@ -74,6 +74,16 @@ export async function getAlwaysOnTopSetting(): Promise<boolean> {
   return raw === '1' || raw.toLowerCase() === 'true';
 }
 
+export async function getExcludeFocusFromCopySetting(): Promise<boolean> {
+  const raw = await getAppSetting('exclude_focus_from_copy');
+  if (!raw) return false;
+  return raw === '1' || raw.toLowerCase() === 'true';
+}
+
+export async function setExcludeFocusFromCopySetting(exclude: boolean): Promise<void> {
+  await setAppSetting('exclude_focus_from_copy', exclude ? '1' : '0');
+}
+
 export async function getUpcomingDefaultEmojiSetting(): Promise<string | null> {
   const raw = await getAppSetting('upcoming_default_emoji_id');
   return raw && raw.trim() ? raw : null;
