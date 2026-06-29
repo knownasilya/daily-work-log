@@ -9,4 +9,4 @@ This template should help get you started developing with Tauri, SvelteKit and T
 
 # Build
 
-After build for unsigned app you need to run `xattr -cr /Applications/daily-work-log.app` on it before you can run it.
+After build for unsigned app you need to run `xattr -cr /Applications/Daily\ Work\ Log.app` on it before you can run it.
