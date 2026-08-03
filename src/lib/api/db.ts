@@ -47,6 +47,8 @@ export interface DayEntry {
   content: string;
   emoji_id: string | null;
   sort_order: number;
+  /** Only meaningful for `upcoming` entries; focus entries are never pinned. */
+  pinned: boolean;
 }
 
 export type ListKind = 'task' | 'focus' | 'upcoming';
@@ -403,6 +405,7 @@ function mapDayEntryRow(r: Record<string, unknown>): DayEntry {
     content: String(r.content),
     emoji_id: r.emoji_id != null ? String(r.emoji_id) : null,
     sort_order: Number(r.sort_order),
+    pinned: sqlBoolean(r.pinned),
   };
 }
 
@@ -458,6 +461,15 @@ export async function updateDayEntryEmoji(id: number, emojiId: string | null): P
   await db.execute(
     "UPDATE day_entries SET emoji_id = $1 WHERE id = $2 AND kind = 'upcoming'",
     [emojiId, id]
+  );
+}
+
+/** Pins/unpins an upcoming entry. No-op for focus entries (they are never pinned). */
+export async function setDayEntryPinned(id: number, pinned: boolean): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE day_entries SET pinned = $1 WHERE id = $2 AND kind = 'upcoming'",
+    [pinned ? 1 : 0, id]
   );
 }
 
@@ -683,6 +695,21 @@ async function readListItem(
   };
 }
 
+/**
+ * Reads whether a list item is pinned. Only `work_log_entries` (Log) and
+ * `day_entries` (focus/upcoming) carry a `pinned` column; custom sections and
+ * focus rows are never pinned, so they read as false.
+ */
+async function readListItemPinned(loc: ListLocation, id: number): Promise<boolean> {
+  if (loc.kind === 'custom') return false;
+  const db = await getDb();
+  const rows = await db.select<Record<string, unknown>[]>(
+    `SELECT pinned FROM ${tableForLocation(loc)} WHERE id = $1 LIMIT 1`,
+    [id]
+  );
+  return Array.isArray(rows) && rows.length > 0 ? sqlBoolean(rows[0].pinned) : false;
+}
+
 /** Appends a new item to the destination list and returns its id. */
 async function insertListItem(
   date: string,
@@ -715,6 +742,10 @@ function sameLocation(a: ListLocation, b: ListLocation): boolean {
  * `emojiForDestination` is applied to the new entry (the caller resolves it). For
  * a focus destination, emoji is ignored (focus has no emoji); for upcoming, a null
  * is stored as null (the caller decides whether to apply the upcoming default).
+ *
+ * A pinned source keeps its pin when the destination supports pinning (Log or
+ * upcoming); focus and custom sections don't display pins, so the pin is dropped
+ * there.
  */
 export async function moveItemBetweenLists(
   date: string,
@@ -726,7 +757,12 @@ export async function moveItemBetweenLists(
   if (sameLocation(source, target)) return sourceId;
   const item = await readListItem(source, sourceId);
   if (!item) return sourceId;
+  const wasPinned = await readListItemPinned(source, sourceId);
   const newId = await insertListItem(date, target, item.content, emojiForDestination);
+  if (wasPinned) {
+    if (target.kind === 'task') await updateTask(newId, { pinned: true });
+    else if (target.kind === 'upcoming') await setDayEntryPinned(newId, true);
+  }
   await deleteListItem(source, sourceId);
   return newId;
 }
