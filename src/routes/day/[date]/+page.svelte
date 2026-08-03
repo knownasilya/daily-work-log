@@ -147,6 +147,30 @@
   });
 
 
+  // `load` computes `isToday`/`isLatestDay`/`prevDay`/`nextDay` once against the
+  // wall-clock date. Left open past midnight the day-view goes stale — most visibly
+  // the "Start today" button never appears — so re-run `load` when the date rolls
+  // over. Checked on a timer and whenever the window regains focus/visibility so it
+  // updates promptly the moment the user returns to the app.
+  $effect(() => {
+    let currentDay = toYYYYMMDD(new Date());
+    const checkDayRollover = () => {
+      const today = toYYYYMMDD(new Date());
+      if (today !== currentDay) {
+        currentDay = today;
+        invalidateAll();
+      }
+    };
+    const interval = setInterval(checkDayRollover, 60_000);
+    document.addEventListener('visibilitychange', checkDayRollover);
+    window.addEventListener('focus', checkDayRollover);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', checkDayRollover);
+      window.removeEventListener('focus', checkDayRollover);
+    };
+  });
+
   let tasks = $derived(data.tasks);
   let focusEntries = $derived(data.focusEntries);
   let upcomingEntries = $derived(data.upcomingEntries);
