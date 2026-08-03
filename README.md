@@ -26,9 +26,15 @@ When you're ready to post, **Copy tasks** formats everything with the right `:em
 - **Pinning** — pin recurring items so they carry forward to the next day.
 - **Day carry-over** — unfinished focus and upcoming items seed the next day automatically (configurable).
 - **@mentions** — autocomplete teammates and drop them into your update.
-- **History & weekly view** — browse and search past days, and see a weekly breakdown by emoji.
+- **History & weekly summary** — browse and search past days, and roll the Log up by week with a per-emoji count of everything you did.
 - **Local & private** — everything is stored in a local SQLite database; no account, no sync, no network.
 - **Lives in your tray** — closing the window keeps the app running in the menu bar / tray.
+
+### Weekly summary → measurables
+
+The **Weekly summary** view groups every day's Log by week and counts how many entries carried each labeled emoji, next to the week's total. Because emoji are auto-assigned by your rules (`:pr:`, `:review:`, `:qa:`, `:pair:`, …), those counts become ready-made weekly data points — how many PRs you opened, reviews you gave, QA passes you ran — with no extra bookkeeping.
+
+That maps directly onto an [EOS](https://www.eosworldwide.com/) Scorecard: each labeled emoji is a weekly measurable, and the summary hands you the number to drop into your Level 10 meeting. Any emoji you don't want counted can be excluded from the summary in settings.
 
 ## Development
 
