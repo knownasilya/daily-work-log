@@ -1679,8 +1679,8 @@
     <button
       onclick={copyToSlack}
       disabled={tasks.length === 0 && upcomingEntries.length === 0 && focusEntries.length === 0 && data.customEntries.length === 0}
-      class="flex-1 mx-4 py-2 text-sm font-medium rounded transition-all duration-200 disabled:opacity-40 disabled:pointer-events-none {copiedFeedback
-        ? 'bg-green-500 text-white scale-[1.02]'
+      class="flex-1 mx-4 py-2 text-sm font-medium rounded transition-colors duration-200 disabled:opacity-40 disabled:pointer-events-none {copiedFeedback
+        ? 'bg-green-500 text-white'
         : 'bg-green-600 text-white hover:bg-green-700'}"
     >
       {#if copiedFeedback}
