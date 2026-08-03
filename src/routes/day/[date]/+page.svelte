@@ -194,21 +194,21 @@
   /**
    * Resolves the emoji a moved item should carry into its destination list:
    * - to focus: none (focus shows no emoji)
-   * - to task/custom: the item's own emoji, else auto-assign by content, else completed default
-   * - to upcoming: the item's own emoji, else the upcoming default
-   * An upcoming source's emoji only counts as "its own" when it differs from the upcoming default.
+   * - otherwise: the item's own emoji if it has one, else auto-assign by content
+   *   (task/custom) or the upcoming default (upcoming).
+   *
+   * The item's own emoji is always preserved, including the upcoming default it was
+   * created with. Previously an upcoming item carrying that default was treated as
+   * having no emoji, so moving it into the Log silently swapped it to the completed
+   * default (:checked:) — see #17. Moving an item is not the same as completing it,
+   * so we keep whatever emoji the user is looking at.
    */
   async function resolveMoveEmoji(
-    srcKind: ListKind,
     srcItem: { content: string; emoji_id: string | null } | undefined,
     tgtKind: ListKind
   ): Promise<string | null> {
     if (tgtKind === 'focus') return null;
-    let own = srcItem?.emoji_id ?? null;
-    if (srcKind === 'upcoming' && own) {
-      const upcomingDefault = await getUpcomingDefaultEmojiSetting();
-      if (own === upcomingDefault) own = null;
-    }
+    const own = srcItem?.emoji_id ?? null;
     if (own) return own;
     if (tgtKind === 'upcoming') return await getUpcomingDefaultEmojiSetting();
     return tryAutoAssignEmoji(srcItem?.content ?? '', emojiRules) ?? (await getCompletedDefaultEmojiSetting());
@@ -404,7 +404,7 @@
     itemMenu = null;
     if (srcKind === tgtKind) return;
     const srcItem = listItemsFor(srcKind).find((x) => x.id === id);
-    const emoji = await resolveMoveEmoji(srcKind, srcItem, tgtKind);
+    const emoji = await resolveMoveEmoji(srcItem, tgtKind);
     await moveItemBetweenLists(data.date, toLocation(srcKind), id, toLocation(tgtKind), emoji);
     await invalidateAll();
   }
@@ -669,7 +669,7 @@
           }
         } else {
           const srcItem = listItemsFor(srcKind).find((x) => x.id === src);
-          const emojiForDestination = await resolveMoveEmoji(srcKind, srcItem, tgtKind);
+          const emojiForDestination = await resolveMoveEmoji(srcItem, tgtKind);
           const newId = await moveItemBetweenLists(
             data.date,
             toLocation(srcKind),
