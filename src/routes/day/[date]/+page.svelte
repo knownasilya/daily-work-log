@@ -19,6 +19,7 @@
     addDayEntry,
     updateDayEntryContent,
     updateDayEntryEmoji,
+    setDayEntryPinned,
     deleteDayEntry,
     reorderDayEntries,
     completeFocusEntry,
@@ -790,6 +791,12 @@
     deleteDayEntry(id).then(() => invalidateAll());
   }
 
+  function handleToggleUpcomingPinned(id: number, pinned: boolean) {
+    upcomingMenuOpen = null;
+    itemMenu = null;
+    setDayEntryPinned(id, pinned).then(() => invalidateAll());
+  }
+
   async function handleCompleteFocus(id: number, content: string) {
     let emojiId = tryAutoAssignEmoji(content, emojiRules);
     if (!emojiId) emojiId = await getCompletedDefaultEmojiSetting();
@@ -1427,9 +1434,38 @@
               onEmptyBackspace={() => handleDeleteUpcomingEntry(entry.id)}
               wrapperClass="flex-1 min-w-0"
               {mentions}
-              class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words pr-8"
+              class="text-sm px-1 py-1 border-0 border-b border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-blue-500 focus:outline-none bg-transparent resize-none overflow-y-auto max-h-24 break-words {entry.pinned ? 'pr-14' : 'pr-8'}"
             />
             <div class="absolute right-0 top-0 flex items-center gap-0.5">
+              {#if entry.pinned}
+                <button
+                  type="button"
+                  onclick={() => handleToggleUpcomingPinned(entry.id, false)}
+                  class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 shrink-0 rounded"
+                  aria-label="Unpin"
+                  title="Unpin"
+                >
+                  <svg
+                    class="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <!-- Bulletin-board pushpin: domed cap + rim + needle, tilted like stuck in cork -->
+                    <g
+                      transform="rotate(-11 12 10.5)"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                    >
+                      <ellipse cx="12" cy="7" rx="4.5" ry="3.5" fill="currentColor" fill-opacity="0.14" />
+                      <path d="M9 10.5h6" />
+                      <path d="M12 10.5V19.5" />
+                    </g>
+                  </svg>
+                </button>
+              {/if}
               <button
                 type="button"
                 onclick={(e) => toggleUpcomingMenu(entry.id, e)}
@@ -1462,6 +1498,14 @@
                 onclick={(e) => e.stopPropagation()}
                 onkeydown={(e) => e.stopPropagation()}
               >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onclick={() => handleToggleUpcomingPinned(entry.id, !entry.pinned)}
+                  class="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  {entry.pinned ? 'Unpin' : 'Pin'}
+                </button>
                 <button
                   type="button"
                   role="menuitem"
@@ -1734,6 +1778,7 @@
   {@const menuLoc = itemMenu.loc}
   {@const menuId = itemMenu.id}
   {@const menuTask = menuLoc === 'task' ? tasks.find((t) => t.id === menuId) : undefined}
+  {@const menuUpcoming = menuLoc === 'upcoming' ? upcomingEntries.find((e) => e.id === menuId) : undefined}
   <div
     role="menu"
     tabindex="-1"
@@ -1764,6 +1809,16 @@
         class="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
       >
         {menuTask.pinned ? 'Unpin' : 'Pin'}
+      </button>
+    {/if}
+    {#if menuUpcoming}
+      <button
+        type="button"
+        role="menuitem"
+        onclick={() => handleToggleUpcomingPinned(menuUpcoming.id, !menuUpcoming.pinned)}
+        class="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+      >
+        {menuUpcoming.pinned ? 'Unpin' : 'Pin'}
       </button>
     {/if}
     <div class="my-1 border-t border-gray-200 dark:border-gray-700" aria-hidden="true"></div>
