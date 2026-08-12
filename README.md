@@ -36,6 +36,8 @@ The **Weekly summary** view groups every day's Log by week and counts how many e
 
 That maps directly onto an [EOS](https://www.eosworldwide.com/) Scorecard: each labeled emoji is a weekly measurable, and the summary hands you the number to drop into your Level 10 meeting. Any emoji you don't want counted can be excluded from the summary in settings.
 
+[Download Latest Version Here](https://github.com/knownasilya/daily-work-log/releases/latest)
+
 ## Development
 
 Requires [Node.js](https://nodejs.org) with [pnpm](https://pnpm.io), plus the [Rust toolchain](https://www.rust-lang.org/tools/install) for Tauri.
